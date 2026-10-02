@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+dist/
+.env
+.env.*
+*.log
+*.pem
+*.key
+/private-license-export/
+/device-backups/
+/device-diagnostics/
+/device-install-verify/
+/webdavmanga-cache.lua

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <x:response xmlns:x="DAV:">
+    <x:href>https://nas.example/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/%E7%AC%AC10%E8%AF%9D/</x:href>
+    <x:propstat><x:prop><x:resourcetype><x:collection /></x:resourcetype></x:prop><x:status>HTTP/1.1 200 OK</x:status></x:propstat>
+  </x:response>
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/%E7%AC%AC2%E8%AF%9D/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection></d:collection></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/10.JPG</d:href>
+    <d:propstat><d:prop><d:resourcetype/>
+      <d:getcontentlength>2048</d:getcontentlength>
+      <d:getetag>&quot;etag-10&quot;</d:getetag>
+      <d:getlastmodified>Sat, 29 Aug 2026 12:00:00 GMT</d:getlastmodified>
+    </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/2.jpg</d:href>
+    <d:propstat><d:prop><d:resourcetype></d:resourcetype><d:getcontentlength>1024</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/A%20%26%20B.webp</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>4096</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/%E6%BC%AB%E7%94%BB/%E6%B5%B7%E8%B4%BC%E7%8E%8B/notes.txt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>99</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>

@@ -1,0 +1,168 @@
+WebDAV Manga for KOReader - version 0.4.11
+
+Local repair build 2026-10-01 preserves repeated EPUB spine images with
+independent page identifiers, refreshes connection-key-owned legacy PDF
+opening caches, and opens RAR/CBR after three validated pages using bounded
+512 KiB opening reads. Archive order remains stable during background indexing.
+On KindleHF only, 7Z/CB7 may use the pinned official LZMA-capable libarchive
+in lib/kindlehf when the installed core library lacks that codec. Its source
+provenance and complete license notices are included alongside the binary.
+No KOReader core library is replaced. Actual server/device acceptance remains
+required; solid archives may need prefix decoding for later pages.
+
+Version 0.4.11 opens its supported image-only EPUB, bounded image-PDF, and
+device-supported seekable 7Z/CB7 paths after three validated opening pages (or
+all pages of a shorter book). Pages 4 through 20 are prioritized after Reader entry,
+then the full catalog continues in the background. Jump navigation stays
+disabled until that catalog is complete. Complete-source download still needs
+explicit confirmation. A failed background catalog keeps readable pages and
+offers retry streaming, explicit complete download, or return. This is not universal PDF or 7Z support:
+ambiguous,
+encrypted, damaged, complex, or device-codec-incompatible inputs remain
+unsupported and must report their bounded failure reason.
+
+Version 0.4.10 opens supported remote archives from a bounded twenty-page
+index. A single background scan publishes an atomic index snapshot after each
+additional five pages, so the active reader can continue before the complete
+directory is available. Archives with at most twenty image pages are marked
+complete during startup. Page bodies remain on the existing Range and bounded
+cache path; this index change does not download the whole source document.
+
+Version 0.4.09 opens supported EPUB, RAR/CBR and 7z/CB7 archives after a
+bounded first-five-page index, then completes the shared page index in the
+background without downloading the whole source file. It also restores the
+single-image PDF compatibility path and accepts libarchive ARCHIVE_WARN when
+the current header remains usable. Full-download fallback remains explicit.
+
+Version 0.4.08 restores the 0.3.89-compatible image-PDF and EPUB Range paths,
+preserves explicit complete-download confirmation, and reports the failing
+stream stage. 7z improvements and the first-five-page progressive index remain
+scheduled for 0.4.09. Kindle runtime behavior has not been validated for this
+release; desktop tests do not establish device TLS, Range, or performance.
+
+Version 0.4.07 preserves Suwayomi's non-secret OPDS page-mode boolean while
+keeping credentials and arbitrary query values redacted. It also raises the
+bounded PDF page-index IPC payload to the existing archive manifest limit, so
+large remote PDF indexes do not incorrectly fall back to a complete download.
+
+Version 0.4.06 connects the existing premium-license client to its independent
+production HTTPS endpoint and verifies receipts with the bundled RSA public key.
+No private key, no plaintext activation key, no license database, and no Worker
+secret is included in the plugin package. Local authorization remains in the
+KOReader settings directory and is not removed by a plugin-folder replacement.
+No plaintext activation key is included in any release member.
+
+Version 0.4.05 uses Maximum (GPL-3.0) and Meguru (AGPL-3.0) as behavior
+references for quadrant interaction, bounded margin analysis and OPDS pointer
+workflows. The behavior was independently implemented in this plugin's existing
+Reader, Loader and Library modules. No GPL or AGPL source code was copied.
+No upstream Reader, database, updater or server-management code is included.
+The named upstream projects retain their own licenses; behavioral reference
+does not claim ownership of their code or replace their license notices.
+
+This is an unofficial third-party plugin. It uses KOReader's public plugin,
+widget, networking, and storage interfaces and follows standard WebDAV
+PROPFIND/GET behavior. It is not affiliated with, endorsed by, or maintained by
+the KOReader project or 极空间.
+
+The implementation was informed by public KOReader APIs and publicly available
+WebDAV plugin behavior. It does not copy business logic from the referenced
+fanqie.koplugin or weread.koplugin projects. Custom cover rows are implemented
+for remote WebDAV resources; they are not copied from KOReader CoverBrowser
+business logic. 自定义封面行面向远程 WebDAV 资源实现，不复制 KOReader
+CoverBrowser 的业务逻辑。
+
+Swipe_Animation.koplugin was reviewed as a behavioral reference during early
+development. Version 0.3.5 does not copy or run its transition code: page
+animation is delegated to KOReader's existing Kindle display-driver API and
+does not patch KOReader core files.
+
+The plugin only changes its local settings, history, cache, and category index.
+It never deletes remote WebDAV files. 插件绝不删除远程 WebDAV 文件。
+
+Version 0.3.41 is rebuilt from the 0.3.21 release and does not include smart
+ambient-light sensing or automatic brightness control. Manual frontlight and
+color-temperature controls remain available through KOReader's device API.
+
+Version 0.3.41 includes native-document classification and handoff for common
+formats, plus validated HTTP Range loading for image pages. Invalid or
+unsupported Range responses fall back to a complete GET. WebDAV documents are
+staged completely before they are handed to KOReader's native reader.
+
+Version 0.3.64 can index unencrypted image-based MOBI files after the complete
+document is local, then copy individual image records into the plugin page
+cache on demand. Text-oriented and unrecognized MOBI files remain handled by
+KOReader's native document reader.
+
+Version 0.3.70 indexes a fixed-layout remote image-based MOBI from its PalmDB
+record table and validates only the first image before opening. Later image
+records are downloaded and identified on demand through bounded HTTP Range
+reads. Local MOBI parsing and the complete-document fallback remain unchanged.
+
+Version 0.3.71 drains readable subprocess output before waiting for process
+exit, preventing large MOBI page indexes from filling the IPC pipe and
+deadlocking the opening dialog. Image-oriented legacy MOBI files without an
+explicit fixed-layout marker may use the same first-image Range path when the
+existing record-count and resource-volume checks identify them as image books.
+
+Version 0.3.72 also uses bounded first-image inspection when a completed MOBI
+document cache is opened, so a cache hit does not rescan every image record
+before entering the manga reader. Later pages remain extracted on demand and
+are probed for their actual image format and dimensions before publication.
+
+Version 0.3.74 streams image pages from remote CBZ archives and image-based
+EPUB files through validated HTTP Range reads. Unsupported, protected, and
+non-image EPUB files retain the complete-download native-reader fallback.
+
+Version 0.3.73 accepts equal consecutive PalmDB record offsets as zero-length
+records while continuing to reject descending and out-of-bounds offsets. This
+keeps valid image MOBI files on the bounded HTTP Range path instead of forcing
+a complete-document fallback.
+
+Version 0.3.96 adds the local premium-license client skeleton for the isolated
+product webdavmanga-premium. Production activation endpoint, RSA public key,
+and device RSA verification provider are not configured in this release.
+Missing configuration fails closed. Production online activation and Kindle
+offline verification remain unverified. Worker source, D1 imports, plaintext
+keys and signing private keys are excluded from the plugin distribution.
+Authorization does not grant a source-code distribution license.
+
+Version 0.3.33 adds bounded LRU browsing-cache maintenance and a low-cost LUT
+image filter. It also preserves validated images whose WebDAV filename
+extension differs from the detected image signature. It does not include the
+postponed commercial authorization system,
+online activation, fixed license keys, device binding, or seven-day trial.
+
+The compact Han-character first-letter index in
+webdavmanga/pinyin_initials.lua is derived from the Rime
+rime-pinyin-simp data distributed with KOReader. That source data is licensed
+under the Apache License, Version 2.0; the original copyright and license
+notices are available in KOReader's frontend/ui/data/keyboardlayouts source.
+
+A source-code distribution license has not yet been selected. The licensing
+terms must be chosen and documented before any commercial or public source
+distribution. This NOTICE is informational and is not a software license.
+
+The TLS socket adapter is derived in part from LuaSec 1.3.2, licensed under
+the following terms:
+
+LuaSec 1.3.2 license
+Copyright (C) 2006-2023 Bruno Silvestre, UFG
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
