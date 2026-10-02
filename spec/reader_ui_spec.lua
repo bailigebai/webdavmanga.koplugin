@@ -290,13 +290,11 @@ panel_action("显示相邻内容").callback()
 panel_action("普通分格边距").callback()
 panel_action("自由缩放边距").callback()
 panel_action("自由缩放倍率").callback()
-panel_action("复杂分格排序").callback()
 expect(reader_settings.panel_zoom_enabled == true
     and reader_settings.panel_show_adjacent == false
     and reader_settings.panel_standard_margin_percent == 2
     and reader_settings.panel_hold_margin_percent == 10
-    and reader_settings.panel_initial_zoom == 1.5
-    and reader_settings.panel_experimental_sort == true,
+    and reader_settings.panel_initial_zoom == 1.5,
     "each dynamic panel control must persist its documented next value")
 local pages_before_continue = #pages
 expect(panel_action("继续阅读").callback() and reader.position.index == 2
@@ -405,7 +403,7 @@ for _, row in ipairs(outer_panel_dialog.buttons) do
         if button.text == "智能分格\n当前：关闭" then outer_panel_field = button end
     end
 end
-expect(outer_panel_dialog.title == "智能分格阅读" and outer_panel_field ~= nil,
+expect(outer_panel_dialog.title == "智能分格阅读默认值" and outer_panel_field ~= nil,
     "outer panel entry must open the real two-column dynamic panel page")
 for name in pairs(ui_modules) do
     package.preload[name] = previous_preload[name]
@@ -723,20 +721,21 @@ do
     expect(shown.id == "a" and sessions[1]:current().index == 2,
         "direction changes must preserve the physical panel by stable id")
     local start_moves = #moves
+    r.reader_settings.panel_reverse_navigation=true
     r:onTap(nil, tap(590)); r:onTap(nil, tap(10))
     r:onSwipe(nil, { direction = "west" }); r:onSwipe(nil, { direction = "east" })
     expect(moves[start_moves + 1] == -1 and moves[start_moves + 2] == 1
         and moves[start_moves + 3] == -1 and moves[start_moves + 4] == 1
-        and shown.id == "a", "manga must reverse edge and swipe input exactly once")
+        and shown.id == "a", "explicit navigation reversal reverses edge and swipe once, independently of panel order")
     r:onTap(nil, { ges = "double_tap", pos = { x = 590, y = 10 } })
     expect(panel_shell.exit_visible and r.panel_session == sessions[1],
         "emergency double tap must stay ahead of panel input routing")
     local old_reader_callbacks = sessions[1].callbacks
-    r:onTap(nil, tap(300))
+    r:exit_panel_mode()
     expect(r.panel_session == nil and not sessions[1]:is_active() and shown == original
         and r.position.index == 2 and r.position.segment == "right" and r.pan_y == 137
         and r.current_segments == segments and #panel_requests == 1,
-        "center exit must restore the exact entry state without reloading the retained page")
+        "explicit panel exit must restore the exact entry state without reloading the retained page")
 
     r:onHold(nil, tap(300)); complete_source()
     local replacement_session, replacement_buffer = r.panel_session, shown
@@ -805,7 +804,7 @@ do
         "first panel must load the previous physical page")
     complete_page(); complete_source()
     expect(shown.id == "b", "previous physical page must resume at its last panel")
-    r:onTap(nil, tap(300))
+    r:exit_panel_mode()
     expect(#panel_requests == 4 and panel_requests[4].image == images[2],
         "after replacing the entry buffer, exit must reload its physical page through the normal loader")
     complete_page()
@@ -814,7 +813,7 @@ do
         "cross-page exit must restore split and pan state after the original page is decoded")
 
     r:onHold(nil, tap(300)); complete_source(); r:next_page(); r:next_page()
-    r:onTap(nil, tap(300))
+    r:exit_panel_mode()
     complete_page()
     expect(panel_requests[#panel_requests].image == images[2] and r.panel_session == nil,
         "exit during an in-flight boundary request must restore the entry page after that request settles")
@@ -826,7 +825,7 @@ do
     -- even when its decoder would fail every attempt.
     local recovery_segments = r.current_segments
     r:onHold(nil, tap(300)); complete_source(); r:next_page(); r:next_page()
-    r:onTap(nil, tap(300))
+    r:exit_panel_mode()
     local decode_image = renderer.renderImageFile
     local abandoned_decodes = 0
     renderer.renderImageFile = function(self, path, ...)
@@ -879,7 +878,7 @@ do
         for _, delta in ipairs({ 1, -1 }) do
             r.pan_y = 137
             r:onHold(nil, tap(300)); complete_source(); r:next_page(); r:next_page()
-            r:onTap(nil, tap(300))
+            r:exit_panel_mode()
             local abandoned = panel_requests[#panel_requests]
             panel_shell.error = nil
             fail_panel_request = failure == "launch"
@@ -921,7 +920,7 @@ do
     complete_page(); complete_source()
     expect(r.position.index == 3 and r.panel_session:is_active() and shown.id == "a",
         "a successful boundary decode retry must resume panel mode normally")
-    r:onTap(nil, tap(300)); complete_page()
+    r:exit_panel_mode(); complete_page()
 
     r:onHold(nil, tap(300)); complete_source()
     local cleanup, close_order = {}, {}

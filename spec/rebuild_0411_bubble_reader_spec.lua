@@ -49,9 +49,12 @@ do
     local r,o=reader(false)
     r.reader_settings.bubble_zoom_trigger="tap"
     r.panel_entry={}
+    r.panel_session={render_options={view="context"}}
     local previous,next_page=0,0
-    r.previous_page=function() previous=previous+1;return true end
-    r.next_page=function() next_page=next_page+1;return true end
+    r._move_panel=function(_,delta)
+        if delta<0 then previous=previous+1 else next_page=next_page+1 end
+        return true
+    end
     r.shell.widget:onTap(nil,{pos={x=5,y=400}})
     r.shell.widget:onTap(nil,{pos={x=595,y=400}})
     expect(previous==1 and next_page==1,"tap bubble mode preserves panel navigation")

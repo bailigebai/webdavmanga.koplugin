@@ -56,12 +56,12 @@ function PanelSession:_fallback(token, reason)
     if self.token == token then self:close() end
 end
 
-function PanelSession:_render(index)
+function PanelSession:_render(index,options)
     if self.rendering then return nil, "panel_session_busy" end
     local token, handle, panel_id = self.token, self.handle, self.panels[index].id
     -- Keep the reservation until native render unwinds, even if close is reentered.
     self.rendering = true
-    local ok, buffer, reason = pcall(handle.render, handle, self.panels[index], self.render_options)
+    local ok, buffer, reason = pcall(handle.render, handle, self.panels[index], options or self.render_options)
     self.rendering = false
     if not ok then return nil, "panel_render_failed" end
     if self.token ~= token then release(buffer, "free"); return nil, "panel_session_closed" end
@@ -72,13 +72,17 @@ function PanelSession:_render(index)
 end
 
 function PanelSession:_schedule_next()
+    if not self.active or not self.panels or not self.render_options then return end
     local index = self.index + 1
-    if not self.schedule or index > #self.panels then return end
+    if self.render_options.view=="free" or not self.schedule or index > #self.panels then return end
     local token, prefetch_token, done = self.token, self.prefetch_token, false
     pcall(self.schedule, function()
         if done or token ~= self.token or prefetch_token ~= self.prefetch_token or not self.active then return end
         done = true
-        local buffer = self:_render(index)
+        local options={}
+        for k,v in pairs(self.render_options) do options[k]=v end
+        options.pan_x,options.pan_y,options.zoom=0,0,1
+        local buffer = self:_render(index,options)
         if token ~= self.token or prefetch_token ~= self.prefetch_token then
             release(buffer, "free")
         else
@@ -87,7 +91,7 @@ function PanelSession:_schedule_next()
     end)
 end
 
-function PanelSession:_publish(index, buffer)
+function PanelSession:_publish(index, buffer,options)
     local token, pending = self.token, {buffer=buffer}
     self.pending = pending
     local callback = self.callbacks and self.callbacks.on_panel
@@ -101,6 +105,7 @@ function PanelSession:_publish(index, buffer)
     if not ok or accepted == false then release(buffer, "free"); return false end
     local previous = self.current_buffer
     self.current_buffer, self.index, self.active = buffer, index, true
+    if options then self.render_options=options end
     self.render_failures = 0
     release(previous, "free")
     self:_schedule_next()
@@ -108,7 +113,7 @@ function PanelSession:_publish(index, buffer)
 end
 
 function PanelSession:start(request, callbacks)
-    if self.rendering then return false, "panel_session_busy" end
+    if self.rendering or self.configuring then return false, "panel_session_busy" end
     self:close()
     local token, source_request = self.token, {}
     for key, value in pairs(request or {}) do source_request[key] = value end
@@ -119,6 +124,7 @@ function PanelSession:start(request, callbacks)
         screen_width=self.screen_width, screen_height=self.screen_height,
         margin_percent=source_request.margin_percent, show_adjacent=source_request.show_adjacent,
         max_pixels=source_request.max_pixels,
+        view=source_request.view,rotation=source_request.rotation or 0,zoom=1,
     }
     local finished, ready_handle = false, nil
     local ok, operation = pcall(self.source.open, self.source, source_request.generation, source_request, {
@@ -158,8 +164,9 @@ function PanelSession:start(request, callbacks)
 end
 
 function PanelSession:move(delta)
-    if self.rendering then return false, "panel_session_busy" end
+    if self.rendering or self.configuring then return false, "panel_session_busy" end
     if not self.active or self.pending or (delta ~= 1 and delta ~= -1) then return false end
+    if self.render_options.view=="free" then return false end
     local index = self.index + delta
     if index < 1 or index > #self.panels then
         if self.callbacks.on_boundary then pcall(self.callbacks.on_boundary, delta) end
@@ -168,7 +175,10 @@ function PanelSession:move(delta)
     local token, buffer = self.token, nil
     if self.next_index == index then buffer, self.next_buffer = self.next_buffer, nil end
     self:release_next()
-    buffer = buffer or self:_render(index)
+    local options={}
+    for k,v in pairs(self.render_options) do options[k]=v end
+    options.pan_x,options.pan_y,options.zoom=0,0,1
+    buffer = buffer or self:_render(index,options)
     if not buffer then
         if self.token == token and self.active then
             self.render_failures = self.render_failures + 1
@@ -176,11 +186,48 @@ function PanelSession:move(delta)
         end
         return false
     end
-    return self:_publish(index, buffer)
+    return self:_publish(index, buffer,options)
+end
+
+function PanelSession:configure(values,commit,rollback)
+    if self.rendering or self.configuring or self.pending or not self.active then return false,"panel_session_busy" end
+    self.configuring=true
+    local function finish(value,reason) self.configuring=false;return value,reason end
+    local options={}
+    for k,v in pairs(self.render_options) do options[k]=v end
+    for k,v in pairs(values or {}) do options[k]=v end
+    self:release_next()
+    local buffer,reason=self:_render(self.index,options)
+    if not buffer then return finish(false,reason) end
+    local token=self.token
+    if commit then
+        local ok,accepted=pcall(commit)
+        if not ok or accepted~=true then release(buffer,"free");return finish(false,"panel_settings_failed") end
+    end
+    if self.token~=token then
+        release(buffer,"free")
+        if rollback then pcall(rollback) end
+        return finish(false,"panel_session_closed")
+    end
+    local accepted=self:_publish(self.index,buffer,options)
+    if not accepted and rollback then pcall(rollback) end
+    return finish(accepted)
+end
+
+function PanelSession:pan(dx,dy)
+    if not self.active or not self.handle.pan_options then return false end
+    local values=self.handle:pan_options(self.panels[self.index],self.render_options,dx,dy)
+    if not values then return false end
+    return self:configure(values)
+end
+
+function PanelSession:zoom(factor)
+    if type(factor)~="number" or factor~=factor or factor<=0 then return false end
+    return self:configure({zoom=math.max(1,math.min(4,(self.render_options.zoom or 1)*factor))})
 end
 
 function PanelSession:set_direction(direction)
-    if self.rendering then return nil, "panel_session_busy" end
+    if self.rendering or self.configuring then return nil, "panel_session_busy" end
     if not self.active or self.pending or (direction ~= "normal" and direction ~= "manga") then return nil end
     local id = self.panels[self.index].id
     local ok, panels = pcall(self.detector.sort, self.panels, direction)

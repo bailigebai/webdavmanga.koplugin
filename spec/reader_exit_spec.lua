@@ -492,6 +492,7 @@ for _, close_failure in ipairs({ "none", "overlay", "input", "fullscreen" }) do
         schedule = function(callback) cleanup_queue[#cleanup_queue + 1] = callback end,
     }
     session.active, session.index = true, 1
+    session.render_options={view="context",zoom=1}
     session.panels = { { id = "first" }, { id = "second" } }
     session.current_buffer = panel_buffer
     session.next_buffer = { free = function() next_frees = next_frees + 1 end }

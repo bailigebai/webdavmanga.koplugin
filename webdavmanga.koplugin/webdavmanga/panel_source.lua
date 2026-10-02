@@ -2,6 +2,7 @@ local PanelSource = {}
 PanelSource.__index = PanelSource
 local Handle = {}
 Handle.__index = Handle
+local View = require("webdavmanga.panel_view")
 
 local function finite(value)
     value = tonumber(value)
@@ -56,7 +57,7 @@ end
 function Handle:detection_raster()
     if self.closed then return nil, "panel_source_unavailable" end
     return {
-        path = self.path, crop = self.crop_normalized,
+        path = self.path, buffer = self.buffer, crop = self.crop_normalized,
         width = self.detection_width, height = self.detection_height,
         max_width = self.screen_width, max_height = self.screen_height,
     }
@@ -64,23 +65,11 @@ end
 
 function Handle:render(panel, options)
     if self.closed then return nil, "panel_source_unavailable" end
-    panel = clipped(panel)
-    if not panel then return nil, "invalid_panel" end
     options = options or {}
-    local crop = self.crop_normalized
-    local box = {
-        x = crop.x + panel.x * crop.w, y = crop.y + panel.y * crop.h,
-        w = panel.w * crop.w, h = panel.h * crop.h,
-    }
-    local margin = math.max(0, math.min(49, finite(options.margin_percent) or 0)) / 100
-    local target_w = positive(options.screen_width) or self.screen_width
-    local target_h = positive(options.screen_height) or self.screen_height
-    if options.show_adjacent == true then
-        box = clipped({ x = box.x - box.w * margin, y = box.y - box.h * margin,
-            w = box.w * (1 + 2 * margin), h = box.h * (1 + 2 * margin) })
-    else
-        target_w, target_h = target_w * (1 - 2 * margin), target_h * (1 - 2 * margin)
-    end
+    local camera,reason=self:camera(panel,options)
+    if not camera then return nil,reason end
+    local box=camera.box
+    local target_w,target_h=camera.target_width,camera.target_height
     local requested_pixels = positive(options.max_pixels)
     if options.max_pixels ~= nil and not requested_pixels then return nil, "invalid_pixel_budget" end
     local max_pixels = math.floor(math.min(self.screen_width * self.screen_height * 1.5,
@@ -113,8 +102,28 @@ function Handle:render(panel, options)
         result = render("buffer", self.buffer_width, self.buffer_height)
     end
     if not result then return nil, "panel_render_failed" end
+    if camera.rotation~=0 then
+        local ok,rotated=pcall(function() return result:rotatedCopy(-camera.rotation) end)
+        release(result,"free")
+        if not ok or not rotated then return nil,"panel_rotation_failed" end
+        result=rotated
+    end
     -- The returned allocation belongs to the caller, never to this handle.
     return result
+end
+
+function Handle:camera(panel,options)
+    local values={}
+    for k,v in pairs(options or {}) do values[k]=v end
+    values.screen_width=positive(values.screen_width) or self.screen_width
+    values.screen_height=positive(values.screen_height) or self.screen_height
+    return View.compute(panel,self.crop_normalized,self.width,self.height,values)
+end
+
+function Handle:pan_options(panel,options,dx,dy)
+    local camera=self:camera(panel,options)
+    if not camera then return nil end
+    return View.pan(camera,self.crop_normalized,options,dx,dy)
 end
 
 function PanelSource:new(options)

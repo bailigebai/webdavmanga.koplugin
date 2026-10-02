@@ -998,10 +998,19 @@ local function default_ui()
                 },
             },
             {
-                key = "panel", title = "智能分格阅读", summary = "仅默认引擎；识别、顺序、边距",
+                key = "panel", title = "智能分格阅读默认值", summary = "仅默认引擎；视图、旋转、顺序、导航",
                 items = {
                     { key = "panel_zoom_enabled", title = "智能分格", choices = on_off },
-                    { key = "direction", title = "分格顺序", choices = {
+                    { key = "panel_view", title = "分格视图", choices = {
+                        { value = "context", text = "保留周边" },{ value = "cut", text = "独立格" },{ value = "free", text = "自由视图" },
+                    } },
+                    { key = "panel_rotation", title = "只旋转分格图片", choices = number_choices({0,90,180,270},"°") },
+                    { key = "panel_navigation", title = "分格导航", choices = {
+                        { value = "horizontal", text = "左右" },{ value = "vertical", text = "上下" },
+                    } },
+                    { key = "panel_reverse_navigation", title = "反向操作", choices = on_off },
+                    { key = "panel_order", title = "分格顺序", choices = {
+                        { value = "follow", text = "跟随整页方向" },
                         { value = "normal", text = "左到右" },
                         { value = "manga", text = "右到左" },
                     } },
@@ -1012,7 +1021,6 @@ local function default_ui()
                         choices = number_choices({ 2, 5, 10, 15, 20 }, "%") },
                     { key = "panel_initial_zoom", title = "自由缩放倍率",
                         choices = number_choices({ 1.0, 1.2, 1.5, 2.0 }, " 倍") },
-                    { key = "panel_experimental_sort", title = "复杂分格排序", choices = on_off },
                 },
             },
             {

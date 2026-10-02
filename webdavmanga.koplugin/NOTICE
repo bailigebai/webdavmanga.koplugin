@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.11
+WebDAV Manga for KOReader - version 0.4.12
 
 The 2026-10-02 hold-zoom build independently extends the existing quadrant
 viewport with native two-finger hold/release handling and a contact-lifetime
@@ -192,3 +192,42 @@ No source code from that project was incorporated. Optional OCR/translation,
 shape masks and scanline selection were not ported. Detection is heuristic;
 complex closed lettering can be mistaken for a speech region. The existing
 project licensing and third-party binary notices remain applicable.
+
+
+Panel component detection and geometry contain adapted code from PanelsPlus,
+revision 14c53e9daec5a34e627dddb3bd52483ddb787bad:
+https://github.com/KristanLaimon/PanelsPlus
+Changes: bounded host/native arrays, fitted ordering frames separated from
+protected display bounds, deterministic ties, plugin-owned coverage checks.
+The MIT License for these portions follows:
+
+MIT License
+
+Copyright (c) 2026 KristanLaimon
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The 0.4.12 panel reader keeps ordering frames separate from protected display
+bounds and offers context, cut and free views with image-only quarter-turn
+rotation. Pixel sampling is bounded to a 480-pixel longest side, component
+candidates to 128, resulting panels to 64 and book profiles to 64. Segmentation
+is heuristic; joined, slanted, borderless or nested frames may remain a full
+page. Desktop checks do not establish Kindle touch, timing or e-ink behavior.
+Meguru revision 217a52371c02db19cf2a19ceb0b5ccd32b358c4e (AGPL-3.0-or-later)
+was consulted for interaction behavior only; no source from it was copied.

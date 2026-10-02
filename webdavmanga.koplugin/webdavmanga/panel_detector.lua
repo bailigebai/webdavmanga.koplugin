@@ -95,38 +95,15 @@ local function filter_and_normalize(boxes, width, height, experimental)
 end
 
 function PanelDetector.sort(panels, direction)
-    local ordered = {}
-    for _, panel in ipairs(panels or {}) do ordered[#ordered + 1] = panel end
-    table.sort(ordered, function(left, right)
-        if left.y ~= right.y then return left.y < right.y end
-        if left.x ~= right.x then return left.x < right.x end
-        return tostring(left.id or "") < tostring(right.id or "")
-    end)
-
-    local rows = {}
-    for _, panel in ipairs(ordered) do
-        local row = rows[#rows]
-        if not row or panel.y >= row.bottom then
-            row = { panels = {}, bottom = panel.y + panel.h }
-            rows[#rows + 1] = row
-        else
-            row.bottom = math.max(row.bottom, panel.y + panel.h)
-        end
-        row.panels[#row.panels + 1] = panel
+    local geometry = require("webdavmanga.panel_geometry")
+    local boxes, result = {}, {}
+    for _,p in ipairs(panels or {}) do
+        -- The reference geometry uses pixel tolerances. Convert normalized
+        -- ordering frames, never their padded/protected display rectangles.
+        boxes[#boxes+1]={x=p.x*10000,y=p.y*10000,w=p.w*10000,h=p.h*10000,id=p.id,original=p}
     end
-
-    local result = {}
-    local manga = direction == "manga"
-    for _, row in ipairs(rows) do
-        table.sort(row.panels, function(left, right)
-            if left.x ~= right.x then
-                return manga and left.x > right.x or not manga and left.x < right.x
-            end
-            if left.y ~= right.y then return left.y < right.y end
-            return tostring(left.id or "") < tostring(right.id or "")
-        end)
-        for _, panel in ipairs(row.panels) do result[#result + 1] = panel end
-    end
+    geometry.sortReadingOrder(boxes,direction=="manga" and "manga" or "comic")
+    for _,p in ipairs(boxes) do result[#result+1]=p.original end
     return result
 end
 
@@ -291,6 +268,11 @@ end
 
 function PanelDetector.detect(raster, options)
     options = options or {}
+    if raster and raster.buffer and not options.backend then
+        local panels,reason=require("webdavmanga.panel_analysis").detect(raster)
+        if not panels then return nil,reason end
+        return PanelDetector.sort(panels,options.direction or "normal")
+    end
     local backend, backend_err = options.backend, nil
     if not backend then backend, backend_err = default_backend() end
     if not backend then return nil, backend_err or "leptonica_unavailable" end

@@ -102,6 +102,9 @@ local function production_widget(shell, dependencies)
             callback = function(...)
                 return invoke_function(action.callback, ...)
             end,
+            hold_callback = action.hold_callback and function(...)
+                return invoke_function(action.hold_callback,...)
+            end,
         }
     end
 
@@ -443,6 +446,7 @@ local function production_widget(shell, dependencies)
             Swipe = { dependencies.GestureRange:new{ ges = "swipe", range = content_range } },
             Hold = { dependencies.GestureRange:new{ ges = "hold", range = content_range } },
             BubbleHoldPan = { dependencies.GestureRange:new{ges="hold_pan"} },
+            PanelPan = {dependencies.GestureRange:new{ges="pan"},dependencies.GestureRange:new{ges="two_finger_pan"}},
         }
         for _,ges in ipairs({"two_finger_hold_release","two_finger_hold_pan_release",
             "two_finger_pan_release","hold_release","pan_release","pinch","spread","rotate","two_finger_swipe"}) do
@@ -475,6 +479,10 @@ local function production_widget(shell, dependencies)
 
     function ReaderWidget:onTwoFingerHoldPan(_arg, gesture)
         return invoke_owner(shell.owner,"onTwoFingerHoldPan",shell,gesture)
+    end
+
+    function ReaderWidget:onPanelPan(_arg,gesture)
+        return invoke_owner(shell.owner,"onPanelPan",shell,gesture)
     end
 
     function ReaderWidget:onTwoFingerHoldRelease(_arg, gesture)

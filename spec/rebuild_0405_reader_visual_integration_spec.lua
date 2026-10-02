@@ -228,9 +228,9 @@ for _, close_path in ipairs({"right_top", "force_panel"}) do
     expect(r:enter_panel_mode(),"enter real PanelSession from quadrant")
     geometry(r.panel_entry.viewport,first,40,60,320,480,"panel snapshot restores ordinary crop before entry")
     expect(r.quadrant_zoom == nil and r.panel_session:is_active()
-        and o.panel_request.page_buffer == first and o.panel_request.page_crop == r.page_crop
+        and o.panel_request.page_buffer == first and o.panel_request.page_crop == nil
         and o.image.scale_factor == 1 and o.image.image.kind == "panel",
-        "panel borrows original page and crop while owning its display allocation")
+        "panel analyzes the full original page to protect dialogue while retaining the ordinary crop for exit")
     local panel = o.image.image
     expect(r:onTwoFingerTap(nil,{pos={x=300,y=100}}) == false,"panel mode rejects quadrant overlay")
     expect(r:exit_panel_mode(),"panel exits to retained page")

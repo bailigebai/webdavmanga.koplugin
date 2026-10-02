@@ -17,6 +17,21 @@ function M.new(w,h,pixel,parent)
         return M.new(sw,sh,function(x,y) return pixels[y*sw+x] end)
     end
     function b:fill(color) self.pixel=function() return color end end
+    function b:rotatedCopy(angle)
+        local cw=(-angle)%360
+        local w,h=self.w,self.h
+        local rw,rh=w,h
+        if cw==90 or cw==270 then rw,rh=h,w end
+        local values={}
+        for y=0,rh-1 do for x=0,rw-1 do
+            local sx,sy=x,y
+            if cw==90 then sx,sy=y,h-x-1
+            elseif cw==180 then sx,sy=w-x-1,h-y-1
+            elseif cw==270 then sx,sy=w-y-1,x end
+            values[y*rw+x]=self:getPixel(sx,sy)
+        end end
+        return M.new(rw,rh,function(x,y) return values[y*rw+x] end)
+    end
     function b:blitFrom(src,dx,dy,sx,sy,bw,bh)
         local old=self.pixel; local values={}
         for y=0,bh-1 do for x=0,bw-1 do values[y*bw+x]=src:getPixel(sx+x,sy+y) end end

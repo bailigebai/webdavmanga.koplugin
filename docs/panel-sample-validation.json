@@ -1,0 +1,171 @@
+{
+  "version": "0.4.12",
+  "scope": "Desktop geometry and content protection; no device/OCR verification",
+  "sample_source": "16 selected images from user-provided ZIP and EPUB; source images excluded",
+  "max_sample_side": 480,
+  "sample12_dialogue_rois": [
+    {
+      "source_pixels": [
+        590,
+        300,
+        790,
+        610
+      ],
+      "protected_by_panels": [
+        3
+      ]
+    },
+    {
+      "source_pixels": [
+        182,
+        668,
+        293,
+        820
+      ],
+      "protected_by_panels": [
+        5
+      ]
+    },
+    {
+      "source_pixels": [
+        208,
+        958,
+        293,
+        1065
+      ],
+      "protected_by_panels": [
+        6
+      ]
+    },
+    {
+      "source_pixels": [
+        49,
+        1018,
+        168,
+        1172
+      ],
+      "protected_by_panels": [
+        6
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "index": 1,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/001.jpg",
+      "count": 0,
+      "reason": "no_panels"
+    },
+    {
+      "index": 2,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/003.jpg",
+      "count": 0,
+      "reason": "no_panels"
+    },
+    {
+      "index": 3,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/005.jpg",
+      "count": 3,
+      "reason": null
+    },
+    {
+      "index": 4,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/007.jpg",
+      "count": 1,
+      "reason": null
+    },
+    {
+      "index": 5,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/010.jpg",
+      "count": 6,
+      "reason": null
+    },
+    {
+      "index": 6,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/013.jpg",
+      "count": 1,
+      "reason": null
+    },
+    {
+      "index": 7,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/014.jpg",
+      "count": 4,
+      "reason": null
+    },
+    {
+      "index": 8,
+      "kind": ".zip",
+      "entry": "┬■╗¡▓Γ╩╘/1/021.jpg",
+      "count": 0,
+      "reason": "no_panels"
+    },
+    {
+      "index": 9,
+      "kind": ".epub",
+      "entry": "cover.jpeg",
+      "count": 1,
+      "reason": null
+    },
+    {
+      "index": 10,
+      "kind": ".epub",
+      "entry": "images/00022.jpeg",
+      "count": 1,
+      "reason": null
+    },
+    {
+      "index": 11,
+      "kind": ".epub",
+      "entry": "images/00043.jpeg",
+      "count": 8,
+      "reason": null
+    },
+    {
+      "index": 12,
+      "kind": ".epub",
+      "entry": "images/00057.jpeg",
+      "count": 6,
+      "reason": null
+    },
+    {
+      "index": 13,
+      "kind": ".epub",
+      "entry": "images/00085.jpeg",
+      "count": 0,
+      "reason": "no_panels"
+    },
+    {
+      "index": 14,
+      "kind": ".epub",
+      "entry": "images/00113.jpeg",
+      "count": 3,
+      "reason": null
+    },
+    {
+      "index": 15,
+      "kind": ".epub",
+      "entry": "images/00127.jpeg",
+      "count": 5,
+      "reason": null
+    },
+    {
+      "index": 16,
+      "kind": ".epub",
+      "entry": "images/00168.jpeg",
+      "count": 1,
+      "reason": null
+    }
+  ],
+  "limitations": [
+    "Samples 4 and 6 retain a full-page frame; automatic segmentation remains unresolved.",
+    "User-specific failed page identifiers have not been supplied.",
+    "Timing, LuaJIT memory, touch and e-ink behavior require device acceptance."
+  ]
+}

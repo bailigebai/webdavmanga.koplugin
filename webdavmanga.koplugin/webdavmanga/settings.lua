@@ -64,6 +64,11 @@ local DEFAULT_READER = {
     panel_hold_margin_percent = 5,
     panel_initial_zoom = 1.2,
     panel_experimental_sort = false,
+    panel_view = "context",
+    panel_rotation = 0,
+    panel_navigation = "horizontal",
+    panel_reverse_navigation = false,
+    panel_order = "follow",
     grid_columns = 5,
     animation_enabled = false,
 }
@@ -678,6 +683,11 @@ function Settings:get_reader()
     if not one_of(reader.bubble_zoom_scale, {1.5, 2, 3}) then reader.bubble_zoom_scale = 2 end
     reader.panel_show_adjacent = reader.panel_show_adjacent ~= false
     reader.panel_experimental_sort = reader.panel_experimental_sort == true
+    if not one_of(reader.panel_view,{"cut","context","free"}) then reader.panel_view="context" end
+    if not one_of(reader.panel_rotation,{0,90,180,270}) then reader.panel_rotation=0 end
+    if not one_of(reader.panel_navigation,{"horizontal","vertical"}) then reader.panel_navigation="horizontal" end
+    reader.panel_reverse_navigation=reader.panel_reverse_navigation==true
+    if not one_of(reader.panel_order,{"follow","normal","manga"}) then reader.panel_order="follow" end
     reader.show_preprocess_success = reader.show_preprocess_success ~= false
     strip_removed_processing(reader)
     reader.show_page_number = nil
@@ -711,6 +721,13 @@ function Settings:set_reader(values)
         or type(reader.panel_show_adjacent) ~= "boolean"
         or type(reader.panel_experimental_sort) ~= "boolean" then
         return nil, "invalid_panel_toggle"
+    end
+    if not one_of(reader.panel_view,{"cut","context","free"})
+        or not one_of(reader.panel_rotation,{0,90,180,270})
+        or not one_of(reader.panel_navigation,{"horizontal","vertical"})
+        or type(reader.panel_reverse_navigation)~="boolean"
+        or not one_of(reader.panel_order,{"follow","normal","manga"}) then
+        return nil,"invalid_panel_view_settings"
     end
     if type(reader.bubble_zoom_enabled) ~= "boolean"
         or not one_of(reader.bubble_zoom_trigger, {"hold", "tap"})
@@ -1109,6 +1126,87 @@ function Settings:is_configured()
     return connection.server_url ~= ""
         and connection.username ~= ""
         and connection.root_path ~= ""
+end
+
+local PANEL_CHOICES={
+    panel_view={"cut","context","free"},panel_rotation={0,90,180,270},
+    panel_navigation={"horizontal","vertical"},panel_reverse_navigation={false,true},
+    panel_order={"follow","normal","manga"},panel_zoom_enabled={false,true},
+    panel_show_adjacent={false,true},panel_standard_margin_percent={0,2,5,10},
+    panel_hold_margin_percent={2,5,10,15,20},panel_initial_zoom={1,1.2,1.5,2},
+    panel_experimental_sort={false,true},
+}
+local function book_key(key)
+    return type(key)=="string" and #key==32 and key:match("^%x+$") and key:lower()
+end
+local function panel_values(values,strict)
+    local result={}
+    if type(values)~="table" then return strict and nil or result end
+    for k,v in pairs(values) do
+        if PANEL_CHOICES[k] and one_of(v,PANEL_CHOICES[k]) then result[k]=v
+        elseif strict then return nil end
+    end
+    return result
+end
+function Settings:panel_values(values) return panel_values(values,false) end
+function Settings:get_panel_reader(key)
+    local reader=self:get_reader()
+    for k,v in pairs(self:get_panel_overrides(key)) do reader[k]=v end
+    return reader
+end
+function Settings:get_panel_overrides(key)
+    key=book_key(key)
+    local profiles=self.store:readSetting("panel_books",{})
+    local profile=key and type(profiles)=="table" and profiles[key]
+    return panel_values(type(profile)=="table" and profile.values,false)
+end
+function Settings:set_panel_reader(key,values,make_default)
+    key=book_key(key)
+    values=panel_values(values,true)
+    if not key or not values then return nil,"invalid_panel_profile" end
+    local old_profiles=self.store:readSetting("panel_books",{})
+    local old_reader=self.store:readSetting("reader",{})
+    local profiles,sequence={},0
+    for id,profile in pairs(type(old_profiles)=="table" and old_profiles or {}) do
+        if book_key(id) and type(profile)=="table" then
+            local serial=tonumber(profile.serial) or 0
+            if serial~=serial or math.abs(serial)==math.huge then serial=0 end
+            profiles[id]={values=panel_values(profile.values,false),serial=serial}
+            sequence=math.max(sequence,serial)
+        end
+    end
+    local current=profiles[key] and copy_table(profiles[key].values) or {}
+    for k,v in pairs(values) do current[k]=v end
+    profiles[key]={values=current,serial=sequence+1}
+    local ids={};for id in pairs(profiles) do ids[#ids+1]=id end
+    table.sort(ids,function(a,b)
+        if profiles[a].serial~=profiles[b].serial then return profiles[a].serial<profiles[b].serial end
+        return a<b
+    end)
+    for i=1,#ids-64 do profiles[ids[i]]=nil end
+    local ok,reason=pcall(function()
+        if make_default then assert(self:set_reader(values)) end
+        assert(self.store:saveSetting("panel_books",profiles)~=false)
+        assert(self:flush()~=false)
+    end)
+    if not ok then
+        pcall(self.store.saveSetting,self.store,"panel_books",old_profiles)
+        pcall(self.store.saveSetting,self.store,"reader",old_reader)
+        return nil,"panel_profile_write_failed"
+    end
+    return true
+end
+
+function Settings:panel_snapshot()
+    return {books=self.store:readSetting("panel_books",{}),reader=self.store:readSetting("reader",{})}
+end
+function Settings:restore_panel(snapshot)
+    local ok=pcall(function()
+        assert(self.store:saveSetting("panel_books",snapshot.books)~=false)
+        assert(self.store:saveSetting("reader",snapshot.reader)~=false)
+        assert(self:flush()~=false)
+    end)
+    return ok
 end
 
 function Settings:flush()
