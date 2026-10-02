@@ -1,5 +1,12 @@
 WebDAV Manga for KOReader - version 0.4.11
 
+The 2026-10-02 hold-zoom build independently extends the existing quadrant
+viewport with native two-finger hold/release handling and a contact-lifetime
+check while held. Lifting either contact restores the preceding view without
+loading or decoding another page. LeadingMangaZoom and Maximum were reviewed
+as behavioral references; their source code and other features were not copied.
+Device touch and display acceptance remains pending.
+
 Local repair build 2026-10-01 preserves repeated EPUB spine images with
 independent page identifiers, refreshes connection-key-owned legacy PDF
 opening caches, and opens RAR/CBR after three validated pages using bounded

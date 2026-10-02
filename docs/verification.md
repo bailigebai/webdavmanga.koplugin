@@ -1,5 +1,21 @@
 # 验证记录
 
+## 2026-10-02 双指按住象限放大
+
+本次运行代码仅修改 `ui_reader.lua` 和 `ui_reader_shell.lua`，在已有象限视口上增加双指按住、松开恢复。没有修改网络、缓存、OPDS、解码或设置项，也没有增加参考项目中的其他功能。默认沿用 KOReader 500毫秒长按阈值，双指中心点确定象限，按住期间锁定，任一指离开恢复之前的画面和位置。
+
+参考源码固定为 [LeadingMangaZoom de08dbbc](https://github.com/Auri3l/leadingmangazoom.koplugin/tree/de08dbbcee5b3192d4ff8e1d7e8284259c2ccbda)、[Maximum 0f4d1fc6](https://github.com/Shac0x/maximum.koplugin/tree/0f4d1fc656c4eb1f2fe1262ceceb88e7ffb7d3b8) 和 [KOReader 896dd63e](https://github.com/koreader/koreader/tree/896dd63e363adf0ac9ce6a81bff76638c42c1044)。两个插件原本是双指点按切换；本次独立扩展现有实现，没有复制其源码。下载源的路径、字节数、哈希及固定修订记录在仓库外的 `upstream-inspection/hold-zoom-20261002/source-manifest.json`。
+
+- 新规格先观察缺少手势入口的失败，再实现按住恢复。独立只读审查复现原生遗漏释放事件、前台弹窗吞掉释放，以及按住时切换适配模式使重载中止；修复后分别使用官方检测器与 UIManager 复验。旧接触检查回调误取消新按住也先复现再修复。
+- `rebuild_0411_quadrant_hold_spec.lua` 的137项检查通过：四象限、按住移动、屏外松开、已锁定象限恢复、精确长页位置、加载/控制/分格拒绝、重复与过期释放、模式切换、Contact 身份替换、旧回调、休眠与关闭；另使用真实 ImageWidget 验证整页、左右分屏、适宽、奇数裁边像素的完整恢复和缓冲借用。稳定长条帧保留原会话位置，未完成帧不能触发。
+- 未修改的官方 GestureDetector、InputContainer、GestureRange、Geom 和 Event 配合当前插件执行40种接触帧场景、468项检查：四象限、主指/副指/两指移动、两种先后抬指顺序和同时抬指。遗漏释放由仅在按住期间每50毫秒核对原始 Contact 身份、down、tracking id 的检查恢复；正常结束取消检查，不拦截底层输入。
+- 新上下文最终审查未遗留相关范围内的 Critical/Important；真实 UIManager 前台弹窗仍保持顶层，释放未到达 Reader 时下层画面也能恢复，关闭弹窗后正常。实际恢复延迟受 UI 主循环调度影响，50毫秒仅为检查间隔。
+- 最终全量171个Lua规格、94个Lua语法文件通过，退出码0；本机日志 `quadrant-hold-final-specs-20261002.log`。严格110文件打包、敏感内容扫描、固定官方原生库哈希、ZIP逐文件核对、双次构建字节一致全部通过。安装包 `releases/webdavmanga.koplugin-v0.4.11-20261002-quadrant-hold.zip`，828271字节，SHA256 `3B81F25E2D800AF3905543B2A01A8331EE49D28D032BC3ACDE8BDF76E000B1B9`，交付目录保留同字节副本。
+
+验收：安装后完全退出并重启 KOReader，在漫画四个象限各双指按住约半秒，分别先松左指、先松右指、同时松开及按住后移动；每次应恢复原画面及显示位置。原双指点按仍可锁定，临时按住结束后恢复该锁定视图。
+
+未解决：本次电脑未检测到 Kindle，因此没有安装本次包；设备触摸识别和墨水屏刷新效果尚未验证。设备安装时须先完整备份当前插件，再完整读回与本包核对。
+
 ## 2026-10-02 OPDS 加载与长条显示
 
 本次截图是根目录加载失败，不能沿用此前章节 `ambiguous_server` 的根因。已完整读取723347字节设备日志，未找到本次目录失败的具体分类。按设备保存的两个 Suwayomi 地址分别进行无代理、同源、只读请求，均得到 `ConnectionRefusedError`，没有获得目录响应。探测结果只记录类别；地址、响应正文、配置及原始日志不进入仓库。真实服务状态与根目录恢复仍待确认。

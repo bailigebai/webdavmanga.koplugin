@@ -1347,6 +1347,7 @@ function Reader:request_page(index, wanted_segment)
     if self.closing or not self.context or not self.state:is_current(self.generation) then
         return true
     end
+    if self.quadrant_hold and not self:onTwoFingerHoldRelease(self.shell) then return false end
     local target = clamp(index, 1, self:_count())
     if self.fit_mode == "webtoon" and self.shell and not self.shell.legacy then
         local fraction = self.webtoon_resume_fraction
@@ -1514,6 +1515,7 @@ function Reader:_pan_vertical(forward)
 end
 
 function Reader:next_page()
+    if self.quadrant_hold and not self:onTwoFingerHoldRelease(self.shell) then return true end
     if self.webtoon_session then
         if self.webtoon_session:next() then return true end
         if self:_wait_for_stream_end() then return true end
@@ -1538,6 +1540,7 @@ function Reader:next_page()
 end
 
 function Reader:previous_page()
+    if self.quadrant_hold and not self:onTwoFingerHoldRelease(self.shell) then return true end
     if self.webtoon_session then return self.webtoon_session:previous() end
     if self.panel_entry then return self:_move_panel(-1) end
     if self:_pan_vertical(false) then return true end
@@ -1556,10 +1559,11 @@ end
 
 function Reader:_reset_quadrant_zoom(_reason)
     self.quadrant_zoom = nil
+    self.quadrant_hold = nil
+    if self.shell and self.shell.stop_quadrant_hold_watch then self.shell:stop_quadrant_hold_watch() end
 end
 
-function Reader:onTwoFingerTap(source_shell, gesture)
-    if self.webtoon_session then return false end
+function Reader:_quadrant_input_ready(source_shell)
     if self.closing or not self.page_buffer or not self.position or not self.shell
         or self.pending_request or self.panel_entry or self.panel_session or self.panel_restore then
         return false
@@ -1571,6 +1575,12 @@ function Reader:onTwoFingerTap(source_shell, gesture)
         or model.reader_generation ~= self.generation then
         return false
     end
+    return true
+end
+
+function Reader:onTwoFingerTap(source_shell, gesture)
+    if self.webtoon_session or not self:_quadrant_input_ready(source_shell) then return false end
+    if self.quadrant_hold then return true end
     local width, height = self.shell:get_content_size()
     local quadrant = Quadrant.from_gesture(gesture, width, height)
     if not quadrant then return false end
@@ -1580,6 +1590,50 @@ function Reader:onTwoFingerTap(source_shell, gesture)
     local shown = self:_display_segment(self.position.segment, false, { refresh_type = "partial" })
     if not shown then self.quadrant_zoom = previous end
     return shown
+end
+
+function Reader:onTwoFingerHold(source_shell, gesture)
+    if not self:_quadrant_input_ready(source_shell)
+        or (self.webtoon_session and self.webtoon_session.busy) then return false end
+    if self.quadrant_hold then return true end
+    local width,height = self.shell:get_content_size()
+    local quadrant = Quadrant.from_gesture(gesture,width,height)
+    if not quadrant then return false end
+    local previous = self.quadrant_zoom
+    self.quadrant_hold = { shell=self.shell, buffer=self.page_buffer, generation=self.generation,
+        serial=self.request_serial, previous=previous, time=gesture.time }
+    self.quadrant_zoom = quadrant
+    local shown = self:_display_segment(self.position.segment,false,{refresh_type="partial"})
+    if shown and self.shell.start_quadrant_hold_watch then
+        shown = self.shell:start_quadrant_hold_watch(self.quadrant_hold)
+        if not shown then
+            self.quadrant_zoom,self.quadrant_hold = previous,nil
+            self:_display_segment(self.position.segment,false,{refresh_type="partial"})
+        end
+    end
+    if not shown then self.quadrant_zoom,self.quadrant_hold = previous,nil end
+    return shown
+end
+
+function Reader:onTwoFingerHoldPan(source_shell)
+    return self.quadrant_hold ~= nil and self:_quadrant_input_ready(source_shell)
+end
+
+function Reader:onTwoFingerHoldRelease(source_shell, gesture)
+    local hold = self.quadrant_hold
+    if not hold or (source_shell and source_shell ~= hold.shell) then return false end
+    if gesture and type(gesture.time)=="number" and type(hold.time)=="number"
+        and gesture.time < hold.time then return false end
+    self.quadrant_hold = nil
+    if self.shell and self.shell.stop_quadrant_hold_watch then self.shell:stop_quadrant_hold_watch() end
+    if self.closing or self.shell ~= hold.shell or self.page_buffer ~= hold.buffer
+        or self.generation ~= hold.generation or self.request_serial ~= hold.serial
+        or not self.state:is_current(hold.generation) then return false end
+    self.quadrant_zoom = hold.previous
+    -- A dialog may have taken focus before lift. Never replace it with a page;
+    -- the restored state is used when normal reading resumes.
+    if not self:_quadrant_input_ready(source_shell) then return true end
+    return self:_display_segment(self.position.segment,false,{refresh_type="partial"})
 end
 
 function Reader:onTap(_, gesture)
@@ -1952,6 +2006,7 @@ function Reader:set_progress_bar_thickness(value)
 end
 
 function Reader:_restart_processed_page()
+    if self.quadrant_hold and not self:onTwoFingerHoldRelease(self.shell) then return false end
     local target = self.position or self.webtoon_request or self.pending_request
     local fraction = self.webtoon_fraction or (target and target.fraction)
     self:_close_webtoon()

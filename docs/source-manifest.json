@@ -1,10 +1,10 @@
 {
   "version": "0.4.11",
-  "snapshot": "2026-10-02-opds-loading-webtoon",
+  "snapshot": "2026-10-02-two-finger-hold",
   "history": "New repository imported from a source snapshot; old Git history unavailable.",
   "package": {
-    "path": "releases/webdavmanga.koplugin-v0.4.11-20261002-opds-webtoon.zip",
-    "sha256": "05f040f9d421ed58250d2bd938abfaa02df8225e6d792108228a8ba1503126a8",
+    "path": "releases/webdavmanga.koplugin-v0.4.11-20261002-quadrant-hold.zip",
+    "sha256": "3b81f25e2d800af3905543b2a01a8331ee49d28d032bc3acde8bdf76e000b1b9",
     "files": 110
   },
   "plugin_files": [
@@ -40,13 +40,13 @@
     },
     {
       "path": "webdavmanga.koplugin/NOTICE",
-      "bytes": 10607,
-      "sha256": "acedb86c8a89f635c52e4692153374309df46390da42691606220e6f9fe20c63"
+      "bytes": 11047,
+      "sha256": "82bd8b2a6233c3c3b11660298ccfc877fbde688ff89ad00cf38466bc1ad9b0f5"
     },
     {
       "path": "webdavmanga.koplugin/README.md",
-      "bytes": 76304,
-      "sha256": "467d94797bca98cabd117b3692d936dbe7fb9884e8de5dc9b37f1d1582f7bccf"
+      "bytes": 77406,
+      "sha256": "5265850173d7e824998901cc2c807b093b8134e75e5442fbec2cf92ca4ea388c"
     },
     {
       "path": "webdavmanga.koplugin/resources/format_samples/baseline.jpg",
@@ -530,13 +530,13 @@
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_reader.lua",
-      "bytes": 122973,
-      "sha256": "512abf8fc972184e8c3f473fbcb9b018a72cb7d0d3828c77836f190de6364cfa"
+      "bytes": 126014,
+      "sha256": "33dd417012b389d18071386bfb990ddedf1c156e86ed5e0c981146bd04424dcc"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_reader_shell.lua",
-      "bytes": 37842,
-      "sha256": "d9f538adef4d916043cb8318356304ce742fd1d667a02e7e025488a9ac06aca5"
+      "bytes": 42135,
+      "sha256": "b94e1f856176de0112a70613882b786e85382baa9668d18318393c40c71247b7"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_registry.lua",

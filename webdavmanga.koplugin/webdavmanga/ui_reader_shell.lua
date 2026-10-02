@@ -381,6 +381,10 @@ local function production_widget(shell, dependencies)
                     ges = "two_finger_tap", range = content_range,
                 },
             },
+            TwoFingerHold = { dependencies.GestureRange:new{ges="two_finger_hold",range=content_range} },
+            TwoFingerHoldPan = { dependencies.GestureRange:new{ges="two_finger_hold_pan"} },
+            -- A lift/cancel must restore the page even outside its original range.
+            TwoFingerHoldRelease = {},
             DoubleTap = {
                 dependencies.GestureRange:new{
                     ges = "double_tap",
@@ -416,6 +420,11 @@ local function production_widget(shell, dependencies)
             Swipe = { dependencies.GestureRange:new{ ges = "swipe", range = content_range } },
             Hold = { dependencies.GestureRange:new{ ges = "hold", range = content_range } },
         }
+        for _,ges in ipairs({"two_finger_hold_release","two_finger_hold_pan_release",
+            "two_finger_pan_release","hold_release","pan_release","pinch","spread","rotate","two_finger_swipe"}) do
+            self.ges_events.TwoFingerHoldRelease[#self.ges_events.TwoFingerHoldRelease+1]
+                = dependencies.GestureRange:new{ges=ges}
+        end
         self:_rebuild()
     end
 
@@ -434,6 +443,28 @@ local function production_widget(shell, dependencies)
 
     function ReaderWidget:onTwoFingerTap(_arg, gesture)
         return invoke_owner(shell.owner, "onTwoFingerTap", shell, gesture)
+    end
+
+    function ReaderWidget:onTwoFingerHold(_arg, gesture)
+        return invoke_owner(shell.owner,"onTwoFingerHold",shell,gesture)
+    end
+
+    function ReaderWidget:onTwoFingerHoldPan(_arg, gesture)
+        return invoke_owner(shell.owner,"onTwoFingerHoldPan",shell,gesture)
+    end
+
+    function ReaderWidget:onTwoFingerHoldRelease(_arg, gesture)
+        return invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell,gesture)
+    end
+
+    function ReaderWidget:onSuspend()
+        invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
+        return false
+    end
+
+    function ReaderWidget:onResume()
+        invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
+        return false
     end
 
     function ReaderWidget:onDoubleTap(arg, gesture)
@@ -556,6 +587,15 @@ function ReaderShell:new(options)
                 return invoke_owner(object.owner, "onTap", nil, gesture)
             elseif gesture.ges == "two_finger_tap" then
                 return invoke_owner(object.owner, "onTwoFingerTap", object, gesture)
+            elseif gesture.ges == "two_finger_hold" then
+                return invoke_owner(object.owner,"onTwoFingerHold",object,gesture)
+            elseif gesture.ges == "two_finger_hold_pan" then
+                return invoke_owner(object.owner,"onTwoFingerHoldPan",object,gesture)
+            elseif gesture.ges == "two_finger_hold_release" or gesture.ges == "two_finger_hold_pan_release"
+                or gesture.ges == "two_finger_pan_release" or gesture.ges == "hold_release"
+                or gesture.ges == "pan_release" or gesture.ges == "pinch" or gesture.ges == "spread"
+                or gesture.ges == "rotate" or gesture.ges == "two_finger_swipe" then
+                return invoke_owner(object.owner,"onTwoFingerHoldRelease",object,gesture)
             elseif gesture.ges == "double_tap" then
                 if object:show_exit_button() then return true end
                 return invoke_owner(object.owner, "onRightTopDoubleTap", nil, gesture)
@@ -908,7 +948,55 @@ function ReaderShell:free_buffer_later(buffer)
     return true
 end
 
+function ReaderShell:stop_quadrant_hold_watch()
+    local check = self.quadrant_hold_check
+    self.quadrant_hold_check = nil
+    if check and self.scheduler and type(self.scheduler.unschedule) == "function" then
+        pcall(self.scheduler.unschedule, self.scheduler, check)
+    end
+end
+
+function ReaderShell:start_quadrant_hold_watch(hold)
+    self:stop_quadrant_hold_watch()
+    local input = self.device and self.device.input
+    local detector = input and input.gesture_detector
+    if not detector or type(detector.getContact) ~= "function" then return true end
+    local slot = input.main_finger_slot
+    if type(slot) ~= "number" or not self.scheduler
+        or type(self.scheduler.scheduleIn) ~= "function" then return false end
+    local first, second = detector:getContact(slot), detector:getContact(slot + 1)
+    if not first or not second then return false end
+    -- KOReader can silently drop both contacts after a hold becomes a rotation.
+    -- Observe only this hold's contacts; never intercept or modify native input.
+    local function check()
+        if self.quadrant_hold_check ~= check then return end
+        if self.closed or self.owner.quadrant_hold ~= hold then
+            self:stop_quadrant_hold_watch()
+            return
+        end
+        if detector:getContact(slot) ~= first or detector:getContact(slot + 1) ~= second
+            or not first.down or not second.down
+            or not first.current_tev or first.current_tev.id == -1
+            or not second.current_tev or second.current_tev.id == -1 then
+            invoke_owner(self.owner, "onTwoFingerHoldRelease", self)
+            self:stop_quadrant_hold_watch()
+            return
+        end
+        if not pcall(self.scheduler.scheduleIn, self.scheduler, 0.05, check) then
+            invoke_owner(self.owner, "onTwoFingerHoldRelease", self)
+            self:stop_quadrant_hold_watch()
+        end
+    end
+    self.quadrant_hold_check = check
+    if not pcall(self.scheduler.scheduleIn, self.scheduler, 0.05, check) then
+        self:stop_quadrant_hold_watch()
+        return false
+    end
+    return true
+end
+
 function ReaderShell:close_now()
+    self:stop_quadrant_hold_watch()
     if self.closed then return true end
     self.closed = true
     pcall(self.close_panel_zoom, self)

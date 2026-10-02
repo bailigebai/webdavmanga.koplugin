@@ -1,12 +1,18 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.11，2026-10-02 OPDS 加载与长条显示修复包**。
+当前源码：**0.4.11，2026-10-02 双指按住象限放大包**。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.11-20261002-opds-webtoon.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.11-20261002-quadrant-hold.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+
+## 本次新增：双指按住临时放大
+
+漫画页上两指同时按住约半秒，双指中心点所在的左上、右上、左下或右下象限会放大；松开任一指恢复原画面、显示位置和先前已锁定的象限。按住期间移动不改变所选象限。原双指点按操作保留；加载、设置及分格界面不会触发。
+
+本次运行代码仅修改阅读器和手势接收层，复用当前图片，不下载、不重新解码、不写阅读进度。参考 leadingmangazoom 和 maximum 的象限行为独立实现，没有移植其他功能。详情和验证证据见 [验证记录](docs/verification.md)。Kindle 触摸实测尚未确认。
 
 ## 当前修复
 
