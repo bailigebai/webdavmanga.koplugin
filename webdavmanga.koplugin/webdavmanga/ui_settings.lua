@@ -6,6 +6,7 @@ local NativeImageFilter = require("webdavmanga.native_image_filter")
 local DialogKeyboard = require("webdavmanga.dialog_keyboard")
 local SafeCallback = require("webdavmanga.safe_callback")
 local UiRegistry = require("webdavmanga.ui_registry")
+local ReaderHelp = require("webdavmanga.reader_help")
 
 local UiSettings = {}
 UiSettings.__index = UiSettings
@@ -61,6 +62,7 @@ local function validation_message(code)
         invalid_gray_enhance_enabled = "去灰增强总开关必须为开启或关闭。",
         invalid_tone_adjust_enabled = "亮度与对比度总开关必须为开启或关闭。",
         invalid_panel_toggle = "智能分格开关设置无效。",
+        invalid_bubble_zoom = "气泡放大设置无效：选择长按或点按，倍率为1.5、2或3倍。",
         invalid_panel_standard_margin = "普通分格边距只能选择 0%、2%、5% 或 10%。",
         invalid_panel_hold_margin = "自由缩放边距只能选择 2%、5%、10%、15% 或 20%。",
         invalid_panel_initial_zoom = "自由缩放倍率只能选择 1.0、1.2、1.5 或 2.0 倍。",
@@ -206,6 +208,10 @@ local function normalize_reader(values, current)
             and (current.tone_adjust_sample_path or "")
             or values.tone_adjust_sample_path,
         panel_zoom_enabled = values.panel_zoom_enabled,
+        bubble_zoom_enabled = values.bubble_zoom_enabled == nil and current.bubble_zoom_enabled
+            or values.bubble_zoom_enabled ~= nil and to_boolean(values.bubble_zoom_enabled),
+        bubble_zoom_trigger = values.bubble_zoom_trigger or current.bubble_zoom_trigger,
+        bubble_zoom_scale = tonumber(values.bubble_zoom_scale or current.bubble_zoom_scale),
         panel_show_adjacent = values.panel_show_adjacent,
         panel_standard_margin_percent = values.panel_standard_margin_percent,
         panel_hold_margin_percent = values.panel_hold_margin_percent,
@@ -268,6 +274,13 @@ local function default_ui()
     end
     function adapter:show_info(message, timeout)
         UIManager:show(InfoMessage:new{ text = message, timeout = timeout or 3 })
+    end
+    function adapter:show_reader_help(text)
+        local TextViewer = require("ui/widget/textviewer")
+        registry:show(TextViewer:new{
+            title = "漫画阅读说明", text = text, fullscreen = true, covers_fullscreen = true,
+        })
+        return true
     end
     function adapter:show_busy(message)
         local widget = InfoMessage:new{ text = message }
@@ -941,6 +954,11 @@ local function default_ui()
             {
                 key = "display", title = "图片显示", summary = "长条、适配、背景、进度条",
                 items = {
+                    {key = "bubble_zoom_enabled", title = "气泡放大", choices = on_off},
+                    {key = "bubble_zoom_trigger", title = "气泡触发手势", choices = {
+                        {value = "hold", text = "单指长按"}, {value = "tap", text = "单指点按（替代正文点按翻页）"},
+                    }},
+                    {key = "bubble_zoom_scale", title = "气泡放大倍率", choices = number_choices({1.5,2,3}," 倍")},
                     { key = "fit_mode", title = "显示模式", choices = {
                         { value = "page", text = "整页" },
                         { value = "width", text = "适宽" },
@@ -3997,9 +4015,17 @@ function UiSettings:show_cover_cache()
     return true
 end
 
+function UiSettings:show_reader_help()
+    if type(self.ui.show_reader_help) ~= "function" then return false end
+    return self.ui:show_reader_help(ReaderHelp) ~= false
+end
+
 function UiSettings:show_about(version, diagnostics)
     self.ui:show_about{
         actions = {
+            {text = "漫画阅读说明", callback = self:_callback("show manga instructions", function()
+                return self:show_reader_help()
+            end)},
             {
                 text = "版本与说明",
                 callback = self:_callback("show version information", function()

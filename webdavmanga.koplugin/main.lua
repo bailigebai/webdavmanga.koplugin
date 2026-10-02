@@ -748,6 +748,9 @@ function WebDavManga:init()
         show_network_settings = function()
             return self.settings_ui:show_reader("network")
         end,
+        show_reader_help = function()
+            return self.settings_ui:show_reader_help()
+        end,
         show_koreader_menu = function()
             local host_menu = self.ui and self.ui.menu
             if host_menu and type(host_menu.onShowMenu) == "function" then

@@ -8,6 +8,14 @@ return function(use_image_widget, options)
         function b:getWidth() return self.w end
         function b:getHeight() return self.h end
         function b:free() self.frees = self.frees + 1 end
+        if options.pixel then
+            function b:getPixel(x,y)
+                assert(self.frees==0,"read after free")
+                if self.parent then return self.parent:getPixel((self.x or 0)+x,(self.y or 0)+y) end
+                o.reads=(o.reads or 0)+1
+                return options.pixel(x,y)
+            end
+        end
         function b:viewport(x, y, width, height)
             assert(x >= 0 and y >= 0 and width > 0 and height > 0
                 and x + width <= self.w and y + height <= self.h, "viewport out of bounds")

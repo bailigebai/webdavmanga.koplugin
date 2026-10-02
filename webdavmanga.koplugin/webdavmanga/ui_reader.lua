@@ -5,6 +5,7 @@ local ImageFormats = require("webdavmanga.image_formats")
 local PageProcessor = require("webdavmanga.page_processor")
 local PageSequence = require("webdavmanga.page_sequence")
 local Quadrant = require("webdavmanga.quadrant_zoom")
+local BubbleZoom = require("webdavmanga.bubble_zoom")
 local SafeCallback = require("webdavmanga.safe_callback")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 local ReaderShell = require("webdavmanga.ui_reader_shell")
@@ -242,6 +243,7 @@ function Reader:new(deps)
     object.open_category_shelf = deps.open_category_shelf
     object.show_light_settings = deps.show_light_settings
     object.show_network_settings = deps.show_network_settings
+    object.show_reader_help = deps.show_reader_help
     object.show_koreader_menu = deps.show_koreader_menu
     object.show_gray_settings = deps.show_gray_settings
     object.show_tone_settings = deps.show_tone_settings
@@ -1565,7 +1567,8 @@ end
 
 function Reader:_quadrant_input_ready(source_shell)
     if self.closing or not self.page_buffer or not self.position or not self.shell
-        or self.pending_request or self.panel_entry or self.panel_session or self.panel_restore then
+        or self.pending_request or self.panel_entry or self.panel_session or self.panel_restore
+        or self.shell.bubble_zoom then
         return false
     end
     local model = self.shell.current_model
@@ -1599,6 +1602,7 @@ function Reader:onTwoFingerHold(source_shell, gesture)
     local width,height = self.shell:get_content_size()
     local quadrant = Quadrant.from_gesture(gesture,width,height)
     if not quadrant then return false end
+    self.shell.bubble_hold_consumed = nil
     local previous = self.quadrant_zoom
     self.quadrant_hold = { shell=self.shell, buffer=self.page_buffer, generation=self.generation,
         serial=self.request_serial, previous=previous, time=gesture.time }
@@ -1620,6 +1624,11 @@ function Reader:onTwoFingerHoldPan(source_shell)
 end
 
 function Reader:onTwoFingerHoldRelease(source_shell, gesture)
+    if source_shell == self.shell and gesture and gesture.ges == "hold_release"
+        and source_shell.bubble_hold_consumed then
+        source_shell.bubble_hold_consumed = nil
+        return true
+    end
     local hold = self.quadrant_hold
     if not hold or (source_shell and source_shell ~= hold.shell) then return false end
     if gesture and type(gesture.time)=="number" and type(hold.time)=="number"
@@ -1636,7 +1645,34 @@ function Reader:onTwoFingerHoldRelease(source_shell, gesture)
     return self:_display_segment(self.position.segment,false,{refresh_type="partial"})
 end
 
+function Reader:show_bubble_at(gesture)
+    if self.shell and self.shell.bubble_zoom then return self.shell:close_bubble_zoom() end
+    if self.quadrant_hold or not self:_quadrant_input_ready(self.shell)
+        or (self.webtoon_session and self.webtoon_session.busy) then return false end
+    local viewport = self.page_viewport
+    local image = self.shell:get_page_image_rect()
+    local point = BubbleZoom.map_point(gesture and gesture.pos, image,
+        viewport:getWidth(), viewport:getHeight())
+    if not point then
+        self.shell:show_status("请在对白气泡内部操作。", 2)
+        return true
+    end
+    local box, reason = BubbleZoom.detect(viewport, point)
+    if not box then
+        self.shell:show_status(reason == "pixel_unavailable" and "当前图片无法识别对白气泡。"
+            or "未识别到明确的封闭对白气泡，请改按气泡空白处。", 2)
+        return true
+    end
+    local scale = (self.reader_settings.bubble_zoom_scale or 2) * image.w / viewport:getWidth()
+    local shown = self:_silent("show_bubble_zoom", function()
+        return self.shell:show_bubble_zoom(viewport, box, gesture.pos, scale)
+    end, false)
+    if not shown then self.shell:show_status("气泡放大显示失败，请重试。", 2) end
+    return true
+end
+
 function Reader:onTap(_, gesture)
+    if self.shell and self.shell.bubble_zoom then return self.shell:close_bubble_zoom() end
     local width, height = 600, 800
     if self.shell and self.shell.get_content_size then
         width, height = self.shell:get_content_size()
@@ -1660,6 +1696,11 @@ function Reader:onTap(_, gesture)
         self:_silent("show_koreader_menu", self.show_koreader_menu, false)
         return true
     end
+    if self.reader_settings.bubble_zoom_enabled == true
+        and self.reader_settings.bubble_zoom_trigger == "tap"
+        and not self.panel_entry and not self.panel_session and not self.panel_restore then
+        return self:show_bubble_at(gesture)
+    end
     if x < width / 3 then
         if self.direction == "manga" then return self:next_page() end
         return self:previous_page()
@@ -1670,8 +1711,20 @@ function Reader:onTap(_, gesture)
     return self:toggle_controls()
 end
 
-function Reader:onHold()
+function Reader:onHold(_, gesture)
     if self.closing then return false end
+    if self.shell and self.shell.bubble_zoom then
+        local consumed = self.shell:close_bubble_zoom()
+        self.shell.bubble_hold_consumed = consumed or nil
+        return consumed
+    end
+    if self.reader_settings and self.reader_settings.bubble_zoom_enabled == true
+        and self.reader_settings.bubble_zoom_trigger ~= "tap"
+        and not self.panel_entry and not self.panel_session and not self.panel_restore then
+        local consumed = self:show_bubble_at(gesture)
+        if self.shell then self.shell.bubble_hold_consumed = consumed or nil end
+        return consumed
+    end
     if not self.reader_settings or self.reader_settings.panel_zoom_enabled ~= true then return false end
     if self.shell and self.shell.current_model and self.shell.current_model.kind ~= "page" then return false end
     local session = self.panel_session
@@ -1699,6 +1752,11 @@ function Reader:onHold()
     end
     if self.panel_entry then return true end
     return self:enter_panel_mode("first")
+end
+
+function Reader:onBubbleHoldPan(source_shell)
+    return not self.closing and source_shell == self.shell
+        and source_shell.bubble_hold_consumed == true
 end
 
 function Reader:_show_panel(buffer, _panel, index, count)
@@ -1856,6 +1914,7 @@ function Reader:close_controls()
 end
 
 function Reader:onSwipe(_, gesture)
+    if self.shell and self.shell.bubble_zoom then return self.shell:close_bubble_zoom() end
     local direction = gesture and gesture.direction
     if direction == "west" then
         if self.direction == "manga" then return self:previous_page() end
@@ -2307,7 +2366,23 @@ function Reader:toggle_controls(section)
             self:_restart_processed_page()
             return show_section("display")
         end
+        local function bubble_setting(key, choices)
+            local values = copy_table(self.reader_settings)
+            local selected = 1
+            for i, value in ipairs(choices) do
+                if values[key] == value then selected = i % #choices + 1; break end
+            end
+            values[key] = choices[selected]
+            if not self:_persist_reader(values) then return false end
+            return show_section("display")
+        end
         actions = {
+            action(self.reader_settings.bubble_zoom_enabled == true and "气泡放大：开" or "气泡放大：关",
+                "toggle bubble zoom", function() return bubble_setting("bubble_zoom_enabled",{true,false}) end),
+            action(self.reader_settings.bubble_zoom_trigger == "tap" and "气泡手势：单指点按" or "气泡手势：单指长按",
+                "cycle bubble trigger", function() return bubble_setting("bubble_zoom_trigger",{"hold","tap"}) end),
+            action(("气泡倍率：%.1f 倍"):format(self.reader_settings.bubble_zoom_scale or 2),
+                "cycle bubble scale", function() return bubble_setting("bubble_zoom_scale",{1.5,2,3}) end),
             action("显示：" .. fit_label,
                 "toggle fit mode", function() return self:onDoubleTap() end),
             action("阅读背景：" .. (self.reader_settings.display_background == "black" and "黑色"
@@ -2571,6 +2646,9 @@ function Reader:toggle_controls(section)
                 self.return_to = self.open_history
                 return self:force_close("open_history")
             end)
+        end
+        if type(self.show_reader_help) == "function" then
+            actions[#actions + 1] = action("漫画阅读说明", "show manga instructions", self.show_reader_help)
         end
         if type(self.open_category_shelf) == "function" then
             actions[#actions + 1] = action("漫画分类架", "open category shelf from reader", function()

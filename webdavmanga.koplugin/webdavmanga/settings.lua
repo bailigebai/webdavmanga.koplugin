@@ -34,6 +34,9 @@ local DEFAULT_READER = {
     webtoon_overlap_percent = 5,
     webtoon_fit_percent = 5,
     webtoon_margin_percent = 0,
+    bubble_zoom_enabled = false,
+    bubble_zoom_trigger = "hold",
+    bubble_zoom_scale = 2,
     gray_enhance_enabled = false,
     gray_enhance_preset = "original",
     gray_enhance_custom_presets = {},
@@ -670,6 +673,9 @@ function Settings:get_reader()
     reader.tone_adjust_sample_path = GrayEnhance.normalize_sample_path(
         reader.tone_adjust_sample_path) or ""
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
+    reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
+    if reader.bubble_zoom_trigger ~= "tap" then reader.bubble_zoom_trigger = "hold" end
+    if not one_of(reader.bubble_zoom_scale, {1.5, 2, 3}) then reader.bubble_zoom_scale = 2 end
     reader.panel_show_adjacent = reader.panel_show_adjacent ~= false
     reader.panel_experimental_sort = reader.panel_experimental_sort == true
     reader.show_preprocess_success = reader.show_preprocess_success ~= false
@@ -705,6 +711,11 @@ function Settings:set_reader(values)
         or type(reader.panel_show_adjacent) ~= "boolean"
         or type(reader.panel_experimental_sort) ~= "boolean" then
         return nil, "invalid_panel_toggle"
+    end
+    if type(reader.bubble_zoom_enabled) ~= "boolean"
+        or not one_of(reader.bubble_zoom_trigger, {"hold", "tap"})
+        or not one_of(reader.bubble_zoom_scale, {1.5, 2, 3}) then
+        return nil, "invalid_bubble_zoom"
     end
     if not one_of(reader.panel_standard_margin_percent, { 0, 2, 5, 10 }) then
         return nil, "invalid_panel_standard_margin"

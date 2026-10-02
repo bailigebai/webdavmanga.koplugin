@@ -1,4 +1,5 @@
 local DialogKeyboard = require("webdavmanga.dialog_keyboard")
+local BubbleZoom = require("webdavmanga.bubble_zoom")
 
 local ReaderShell = {}
 ReaderShell.__index = ReaderShell
@@ -169,13 +170,13 @@ local function production_widget(shell, dependencies)
                 dimen = dependencies.Geom:new{ w = width, h = height },
                 image,
             },
-        }
+        }, image
     end
 
     function ReaderWidget:_rebuild()
         local model = shell.current_model or { kind = "loading", message = "" }
-        local content
-        if model.kind == "page" then content = self:_page_content(model)
+        local content, page_image
+        if model.kind == "page" then content, page_image = self:_page_content(model)
         else content = self:_message_content(model) end
         local previous = self[1]
         local root = dependencies.OverlapGroup:new{
@@ -219,6 +220,27 @@ local function production_widget(shell, dependencies)
                     align = "left",
                     dependencies.TextWidget:new{
                         text = tostring(model.status_text), face = face,
+                    },
+                }
+            end
+            local bubble = shell.bubble_zoom
+            if bubble then
+                local rect = bubble.rect
+                local width, height = rect.w - 4, rect.h - 4
+                root[#root + 1] = dependencies.OverlapGroup:new{
+                    allow_mirroring = false,
+                    dimen = dependencies.Geom:new{w = shell.screen_w, h = shell.screen_h},
+                    dependencies.FrameContainer:new{
+                        width = rect.w, height = rect.h, margin = 0, padding = 1, bordersize = 1,
+                        overlap_offset = {rect.x, rect.y},
+                        background = dependencies.Blitbuffer.COLOR_WHITE,
+                        dependencies.CenterContainer:new{
+                            dimen = dependencies.Geom:new{w = width, h = height},
+                            dependencies.ImageWidget:new{
+                                image = bubble.buffer, image_disposable = false,
+                                width = width, height = height, scale_factor = 0,
+                            },
+                        },
                     },
                 }
             end
@@ -266,6 +288,7 @@ local function production_widget(shell, dependencies)
             }
         end
         self[1] = root
+        shell.page_image = page_image
         if previous and previous.free then previous:free() end
     end
 
@@ -419,6 +442,7 @@ local function production_widget(shell, dependencies)
             },
             Swipe = { dependencies.GestureRange:new{ ges = "swipe", range = content_range } },
             Hold = { dependencies.GestureRange:new{ ges = "hold", range = content_range } },
+            BubbleHoldPan = { dependencies.GestureRange:new{ges="hold_pan"} },
         }
         for _,ges in ipairs({"two_finger_hold_release","two_finger_hold_pan_release",
             "two_finger_pan_release","hold_release","pan_release","pinch","spread","rotate","two_finger_swipe"}) do
@@ -457,12 +481,20 @@ local function production_widget(shell, dependencies)
         return invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell,gesture)
     end
 
+    function ReaderWidget:onBubbleHoldPan()
+        return invoke_owner(shell.owner,"onBubbleHoldPan",shell)
+    end
+
     function ReaderWidget:onSuspend()
+        shell.bubble_hold_consumed = nil
+        shell:close_bubble_zoom()
         invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
         return false
     end
 
     function ReaderWidget:onResume()
+        shell.bubble_hold_consumed = nil
+        shell:close_bubble_zoom()
         invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
         return false
     end
@@ -591,6 +623,8 @@ function ReaderShell:new(options)
                 return invoke_owner(object.owner,"onTwoFingerHold",object,gesture)
             elseif gesture.ges == "two_finger_hold_pan" then
                 return invoke_owner(object.owner,"onTwoFingerHoldPan",object,gesture)
+            elseif gesture.ges == "hold_pan" then
+                return invoke_owner(object.owner,"onBubbleHoldPan",object,gesture)
             elseif gesture.ges == "two_finger_hold_release" or gesture.ges == "two_finger_hold_pan_release"
                 or gesture.ges == "two_finger_pan_release" or gesture.ges == "hold_release"
                 or gesture.ges == "pan_release" or gesture.ges == "pinch" or gesture.ges == "spread"
@@ -627,11 +661,62 @@ end
 
 function ReaderShell:_publish(model)
     if self.closed then return false end
+    local bubble = self.bubble_zoom
+    self.bubble_zoom = nil
+    local previous = self.current_model
     self.current_model = model
     if self.widget and type(self.widget.set_model) == "function" then
-        self.widget:set_model(model)
+        local ok, err = pcall(self.widget.set_model, self.widget, model)
+        if not ok then
+            self.current_model, self.bubble_zoom = previous, bubble
+            error(err, 0)
+        end
+    end
+    if bubble then self:free_buffer_later(bubble.buffer) end
+    return true
+end
+
+function ReaderShell:get_page_image_rect()
+    local model = self.current_model
+    if not model or model.kind ~= "page" then return nil end
+    local view = model.viewport or model.buffer
+    local w, h = view:getWidth(), view:getHeight()
+    local image = self.page_image
+    if image and type(image.getCurrentWidth) == "function" then
+        image:getSize()
+        w, h = image:getCurrentWidth(), image:getCurrentHeight()
+    elseif model.display_scale == 0 then
+        local scale = math.min(self.screen_w / w, self.screen_h / h)
+        w, h = math.floor(w * scale), math.floor(h * scale)
+    end
+    return {x = math.floor((self.screen_w - w) / 2),
+        y = math.floor((self.screen_h - h) / 2), w = w, h = h}
+end
+
+function ReaderShell:show_bubble_zoom(source, box, point, scale)
+    if self.closed or self.bubble_zoom or not self.current_model
+        or self.current_model.kind ~= "page" then return false end
+    local rect = BubbleZoom.overlay_rect(box, scale, point, self.screen_w - 4, self.screen_h - 4)
+    if not rect then return false end
+    rect.w, rect.h = rect.w + 4, rect.h + 4
+    rect.x, rect.y = math.min(rect.x, self.screen_w - rect.w), math.min(rect.y, self.screen_h - rect.h)
+    local view = source:viewport(box.x, box.y, box.w, box.h)
+    local bubble = {buffer = view, rect = rect}
+    self.status_token = self.status_token + 1
+    self.current_model.status_text = nil
+    self.bubble_zoom = bubble
+    local ok = pcall(self.widget.set_model, self.widget, self.current_model)
+    if not ok then
+        self.bubble_zoom = nil
+        self:free_buffer_later(view)
+        return false
     end
     return true
+end
+
+function ReaderShell:close_bubble_zoom()
+    if not self.bubble_zoom then return false end
+    return self:_publish(self.current_model)
 end
 
 function ReaderShell:cancel_transition()
@@ -999,6 +1084,8 @@ function ReaderShell:close_now()
     self:stop_quadrant_hold_watch()
     if self.closed then return true end
     self.closed = true
+    local bubble = self.bubble_zoom
+    self.bubble_zoom, self.page_image, self.bubble_hold_consumed = nil, nil, nil
     pcall(self.close_panel_zoom, self)
     self.current_model = nil
     local input_dialog = self.input_dialog
@@ -1010,6 +1097,7 @@ function ReaderShell:close_now()
     if self.ui_manager and type(self.ui_manager.close) == "function" then
         pcall(self.ui_manager.close, self.ui_manager, self.widget)
     end
+    if bubble then self:free_buffer_later(bubble.buffer) end
     return true
 end
 

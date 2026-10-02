@@ -182,3 +182,13 @@ behavior; no source from smart-webtoon-scroll.koplugin was incorporated.
 Native decoder peak memory and live-server/display behavior remain subject
 to device validation. Reference revisions are recorded in docs/verification.md
 in the source repository.
+
+The 2026-10-02 speech-bubble zoom change for version 0.4.11 independently
+implements bounded pixel thresholding, paper components and a borrowed-image
+overlay for this plugin's own comic reader. Core hold/tap zoom interaction was
+informed by anezih/bubblezoom.koplugin at revision
+ de38fc01cb0960690818e1c95a1780874adaa9cf (AGPL-3.0).
+No source code from that project was incorporated. Optional OCR/translation,
+shape masks and scanline selection were not ported. Detection is heuristic;
+complex closed lettering can be mistaken for a speech region. The existing
+project licensing and third-party binary notices remain applicable.
