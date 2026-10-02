@@ -104,6 +104,11 @@ local function classify(links, image_url, stream)
         local rel = tostring(link.rel or ""):lower()
         if rel == "subsection" or rel == "http://opds-spec.org/subsection"
             or rel == "http://opds-spec.org/crawlable" then
+            local media_type = tostring(link.type or ""):lower():gsub("%s+", "")
+            if media_type:match("^application/atom%+xml;")
+                and (media_type .. ";"):find(";type=entry;", 1, true) then
+                return "volume"
+            end
             return "series"
         end
     end

@@ -2,7 +2,7 @@ local Kavita = {}
 local Url = require("webdavmanga.opds_url")
 
 function Kavita.detect(context)
-    return Url.server_evidence(context, "kavita", "/api/opds")
+    return Url.server_evidence(context, "kavita")
 end
 
 local function query_id(url, wanted)

@@ -6,6 +6,18 @@ local drivers = {
     komga = require("webdavmanga.opds_drivers.komga"),
 }
 
+local function safe_language_tag(value)
+    if #value > 64 then return false end
+    local language, rest = value:match("^([a-zA-Z]+)(.*)$")
+    if not language or #language < 2 or #language > 3 then return false end
+    if rest == "" then return true end
+    if rest:sub(1, 1) ~= "-" or rest:sub(-1) == "-" or rest:find("--", 1, true) then return false end
+    for part in rest:gmatch("[^-]+") do
+        if #part > 8 or part:find("[^a-zA-Z0-9]") then return false end
+    end
+    return true
+end
+
 local function safe_query_value(key, value)
     if value == "{pageNumber}" or value == "{width}" or value == "{maxWidth}"
         or value == "{height}" or value == "{maxHeight}" then return true end
@@ -18,6 +30,7 @@ local function safe_query_value(key, value)
     if key == "page" or key == "pageNumber" or key == "size" then return value:match("^%d+$") ~= nil end
     if key == "opds" then return value == "true" or value == "false" end
     if key == "sort" then return value == "number_asc" or value == "number_desc" end
+    if key == "lang" then return safe_language_tag(value) end
     return false
 end
 

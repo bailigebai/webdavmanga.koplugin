@@ -2,7 +2,7 @@ local Komga = {}
 local Url = require("webdavmanga.opds_url")
 
 function Komga.detect(context)
-    return Url.server_evidence(context, "komga", "/opds/v1.2")
+    return Url.server_evidence(context, "komga")
 end
 
 function Komga.resolve(connection, context, entry, metadata)

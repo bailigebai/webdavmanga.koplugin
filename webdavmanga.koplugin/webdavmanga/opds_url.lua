@@ -57,7 +57,8 @@ function Url.redact_kavita_path(path)
     -- Only literal slashes delimit segments. An escaped slash inside the key is
     -- secret key data; decoding it must never leave a suffix outside redaction.
     for segment in (path .. "/"):gmatch("(.-)/") do
-        if before_previous == "api" and previous == "opds" and segment ~= "" then
+        if before_previous == "api" and previous == "opds" and segment ~= ""
+            and decoded_path(segment):lower() ~= "v1.2" then
             parts[#parts + 1], changed = "{apiKey}", true
         else
             parts[#parts + 1] = segment
@@ -67,7 +68,26 @@ function Url.redact_kavita_path(path)
     return table.concat(parts, "/"), changed
 end
 
-function Url.server_evidence(context, server, route)
+-- Suwayomi's complete endpoint contains both the Kavita prefix and the Komga
+-- suffix. Consume complete routes before looking for another independent one.
+local SERVER_ROUTES = {
+    { server = "suwayomi", path = "/api/opds/v1.2" },
+    { server = "suwayomi", path = "/api/v1/opds" },
+    { server = "komga", path = "/opds/v1.2" },
+    { server = "kavita", path = "/api/opds" },
+}
+
+local function find_route(path, route, start)
+    while true do
+        local first, last = path:find(route, start, true)
+        if not first then return end
+        local following = path:sub(last + 1, last + 1)
+        if following == "" or following == "/" then return first, last end
+        start = last + 1
+    end
+end
+
+function Url.server_evidence(context, server)
     local author = tostring((context.feed or {}).author or ""):lower()
     if author:match("%f[%w_]" .. server .. "%f[^%w_]") then return true end
     local parsed = Url.parse(context.feed_url)
@@ -75,10 +95,16 @@ function Url.server_evidence(context, server, route)
     local path = decoded_path(parsed.path):lower()
     local start = 1
     while true do
-        local _, last = path:find(route, start, true)
-        if not last then return false end
-        local following = path:sub(last + 1, last + 1)
-        if following == "" or following == "/" then return true end
+        local best, first, last
+        for _, route in ipairs(SERVER_ROUTES) do
+            local candidate_first, candidate_last = find_route(path, route.path, start)
+            if candidate_first and (not first or candidate_first < first
+                or (candidate_first == first and candidate_last > last)) then
+                best, first, last = route.server, candidate_first, candidate_last
+            end
+        end
+        if not best then return false end
+        if best == server then return true end
         start = last + 1
     end
 end

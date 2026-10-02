@@ -2,11 +2,12 @@ local Suwayomi = {}
 local Url = require("webdavmanga.opds_url")
 
 function Suwayomi.detect(context)
-    return Url.server_evidence(context, "suwayomi", "/api/v1/opds")
+    return Url.server_evidence(context, "suwayomi")
 end
 
 local function chapter_id(id)
     if type(id) ~= "string" or not id:match("^urn:[^%s]+$") then return nil end
+    if id:match(":metadata:remote$") then return (id:gsub(":metadata:remote$", "", 1)) end
     return (id:gsub(":metadata$", "", 1))
 end
 
@@ -18,7 +19,10 @@ function Suwayomi.resolve(connection, context, entry, metadata_feed)
         if not metadata_feed then return nil, "metadata_required" end
         item = nil
         for _, candidate in ipairs(metadata_feed.entries or {}) do
-            if candidate.stream and chapter_id(candidate.id) == id then item = candidate; break end
+            if candidate.stream and chapter_id(candidate.id) == id then
+                if item then return nil, "metadata_choice_required" end
+                item = candidate
+            end
         end
         if not item then return nil, "chapter_identity_mismatch" end
     end

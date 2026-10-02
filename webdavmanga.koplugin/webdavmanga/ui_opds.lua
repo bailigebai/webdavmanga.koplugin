@@ -351,7 +351,7 @@ function Ui:_driver_context(page)
 end
 
 function Ui:_series_candidates(source, feed, supplied_context)
-    local chapters, series_id = {}, nil
+    local chapters, series_id, seen = {}, nil, {}
     local context = supplied_context or self:_driver_context()
     for _, child in ipairs(feed.entries or {}) do
         local descriptor = child.stream and self.driver.resolve(source, context, child) or nil
@@ -364,6 +364,10 @@ function Ui:_series_candidates(source, feed, supplied_context)
         end
         if id and candidate_series then
             if series_id and series_id ~= candidate_series then return {}, nil end
+            -- Metadata progress variants are choices for one chapter, not
+            -- separate neighbors or a series-wide resume action.
+            if seen[id] then return {}, nil end
+            seen[id] = true
             series_id = candidate_series
             local last = descriptor and descriptor.server_last_read
             chapters[#chapters + 1] = { chapter_id = id, chapter_name = child.name, entry = child,
@@ -717,6 +721,7 @@ local CHAPTER_ERRORS = {
     chapter_identity_mismatch = "章节详情与所选章节不一致，请刷新目录后重试。",
     series_identity_mismatch = "章节详情与所属系列不一致，请刷新目录后重试。",
     metadata_unavailable = "章节详情加载失败，请刷新目录后重试。",
+    metadata_choice_required = "该章节有多个同步阅读位置，请从章节详情中选择。",
 }
 
 function Ui:_chapter_error(reason)
@@ -738,7 +743,7 @@ function Ui:_open_entry(entry, child)
     local metadata_chapter = self.pointer and child.kind == "volume"
         and (entry.server_kind == "suwayomi"
             or ((entry.server_kind == nil or entry.server_kind == "auto")
-                and Url.server_evidence(context, "suwayomi", "/api/v1/opds")))
+                and Url.server_evidence(context, "suwayomi")))
     if child.stream or metadata_chapter then
         local selection_generation = self:_begin_selection()
         local generation = self.navigation_generation
@@ -757,7 +762,7 @@ function Ui:_open_entry(entry, child)
                     break
                 end
             end
-            descriptor.series_feed_url = Driver.redact_url(parent_url)
+            descriptor.series_feed_url = Driver.redact_url(page and page.url or context.series_feed_url or parent_url)
             return self:request_open(descriptor, entry, { navigation_page = page,
                 server_position = server_position,
                 chapter_order = page and page.entries, resolve_chapter = page and page.resolve,
@@ -769,6 +774,14 @@ function Ui:_open_entry(entry, child)
             return self:_fetch_async(entry, child.href, function(metadata)
                 if not metadata then return opened(nil, "metadata_unavailable") end
                 local resolved, reason = self.driver.resolve(entry, context, child, metadata)
+                if not resolved and reason == "metadata_choice_required" then
+                    local choice_context = { series_id = context.series_id, series_name = context.series_name,
+                        series_cover_url = context.series_cover_url, series_feed_url = parent_url }
+                    return self:_show_feed(entry, metadata, child.name, function()
+                        return self:open_url(entry, parent_url, parent.title, parent.on_back,
+                            parent_url, parent.series_context)
+                    end, child.href, nil, choice_context)
+                end
                 return opened(resolved, reason)
             end, generation, nil, selection_generation)
         end
@@ -781,7 +794,7 @@ function Ui:_open_entry(entry, child)
     end
     local url = child.href
     if child.kind == "series" and (entry.server_kind == "suwayomi"
-        or Url.server_evidence(self:_driver_context(parent), "suwayomi", "/suwayomi")) then
+        or Url.server_evidence(self:_driver_context(parent), "suwayomi")) then
         local base, query = url:match("^([^?#]+)%?([^#]*)")
         base = base or url:gsub("#.*$", "")
         local pairs = {}
