@@ -9,6 +9,7 @@ local SafeCallback = require("webdavmanga.safe_callback")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 local ReaderShell = require("webdavmanga.ui_reader_shell")
 local OpdsPages = require("webdavmanga.opds_pages")
+local Webtoon = require("webdavmanga.webtoon_session")
 
 local Reader = {}
 Reader.__index = Reader
@@ -79,6 +80,7 @@ local function indexed_context(context)
     return {
         connection = context.connection,
         initial_page = context.initial_page,
+        resume_local = context.resume_local == true,
         manga = context.manga,
         chapter = context.chapter,
         chapter_index = chapter_index,
@@ -693,6 +695,9 @@ end
 
 function Reader:_target_size(width, height, segments)
     local content_w, content_h = self.shell:get_content_size()
+    if self.fit_mode == "webtoon" then
+        return self.page_processor.target_size(width, height, self.reader_settings, content_w, content_h)
+    end
     content_w = math.max(1, tonumber(content_w) or 600)
     content_h = math.max(1, tonumber(content_h) or 800)
     local split = #segments == 2
@@ -711,6 +716,7 @@ function Reader:_target_size(width, height, segments)
 end
 
 function Reader:_segments(width, height)
+    if self.fit_mode == "webtoon" then return { "whole" } end
     if self.panel_entry then return { "whole" } end
     return PageSequence.segments(width, height, self.reader_settings)
 end
@@ -857,6 +863,7 @@ function Reader:_checkpoint(index, segment, image)
             layout = self.context.layout,
             cover_hint = self.context.cover_hint,
             source_context = self.context.source_context,
+            vertical_fraction = self.fit_mode == "webtoon" and self.webtoon_fraction or nil,
         })
     end)
     local source = self.context and self.context.source_context
@@ -877,6 +884,10 @@ function Reader:_display_segment(segment, checkpoint, page_change)
     page_change.reader_generation = self.generation
     page_change.display_scale = self.quadrant_zoom and not self.panel_entry
         and not self.panel_session and 0 or 1
+    local background = self.reader_settings.display_background or "white"
+    page_change.background = background == "auto"
+        and (self.page_metadata and self.page_metadata.background or Webtoon.background(viewport))
+        or background
     local shown = self:_silent("show_reader_page", function()
         return self.shell:show_page(self.page_buffer, viewport,
             self:_title(self.position.index, segment), page_change,
@@ -984,6 +995,37 @@ function Reader:_render_memory_ready(buffer, index, wanted_segment, serial,
         serial, generation, metadata)
 end
 
+function Reader:_decode_page_path(path, image, metadata)
+    local width = tonumber(metadata.width or image.width)
+    local height = tonumber(metadata.height or image.height)
+    -- Direct local sources may intentionally skip the lightweight header
+    -- probe when it cannot recognize a decoder-valid variant.  Render at a
+    -- bounded screen-sized target in that case, then use the native decoded
+    -- buffer dimensions below for page splitting and viewport calculations.
+    local dimensions_unverified = not width or not height
+        or width <= 0 or height <= 0
+    if dimensions_unverified then
+        local content_w, content_h = self.shell:get_content_size()
+        width = math.max(1, math.floor(tonumber(content_w) or 600))
+        height = math.max(1, math.floor(tonumber(content_h) or 800))
+    end
+    local initial_segments = self:_segments(width, height)
+    local target_w, target_h
+    if metadata.prepared == true then target_w, target_h = width, height
+    else target_w, target_h = self:_target_size(width, height, initial_segments) end
+    local renderer = self:_renderer()
+    if not renderer or type(renderer.renderImageFile) ~= "function" then
+        return nil, "image renderer unavailable"
+    end
+    local ok, next_buffer = pcall(renderer.renderImageFile, renderer,
+        path, false, target_w, target_h)
+    if not ok or not next_buffer then
+        return nil, ok and "empty decoded buffer" or next_buffer
+    end
+
+    return next_buffer
+end
+
 function Reader:_render_ready(path, index, wanted_segment, serial, generation, metadata)
     if not self:_active(serial, generation) then return end
     metadata = metadata or {}
@@ -1020,32 +1062,8 @@ function Reader:_render_ready(path, index, wanted_segment, serial, generation, m
         return
     end
 
-    local width = tonumber(metadata.width or image.width)
-    local height = tonumber(metadata.height or image.height)
-    -- Direct local sources may intentionally skip the lightweight header
-    -- probe when it cannot recognize a decoder-valid variant.  Render at a
-    -- bounded screen-sized target in that case, then use the native decoded
-    -- buffer dimensions below for page splitting and viewport calculations.
-    local dimensions_unverified = not width or not height
-        or width <= 0 or height <= 0
-    if dimensions_unverified then
-        local content_w, content_h = self.shell:get_content_size()
-        width = math.max(1, math.floor(tonumber(content_w) or 600))
-        height = math.max(1, math.floor(tonumber(content_h) or 800))
-    end
-    local initial_segments = self:_segments(width, height)
-    local target_w, target_h
-    if metadata.prepared == true then target_w, target_h = width, height
-    else target_w, target_h = self:_target_size(width, height, initial_segments) end
-    local renderer = self:_renderer()
-    if not renderer or type(renderer.renderImageFile) ~= "function" then
-        return self:_decode_failed(index, "image renderer unavailable")
-    end
-    local ok, next_buffer = pcall(renderer.renderImageFile, renderer,
-        path, false, target_w, target_h)
-    if not ok or not next_buffer then
-        return self:_decode_failed(index, ok and "empty decoded buffer" or next_buffer)
-    end
+    local next_buffer, decode_error = self:_decode_page_path(path, image, metadata)
+    if not next_buffer then return self:_decode_failed(index, decode_error) end
 
     return self:_publish_buffer(next_buffer, path, index, wanted_segment,
         serial, generation, metadata)
@@ -1165,7 +1183,9 @@ function Reader:open(context)
     end
     resolved = resolved or { index = 1, segment = "whole" }
     if tonumber(self.context.initial_page) then
-        resolved = { index = clamp(math.floor(self.context.initial_page), 1, self:_count()), segment = "whole" }
+        local target = clamp(math.floor(self.context.initial_page), 1, self:_count())
+        resolved = { index = target, segment = "whole", vertical_fraction =
+            self.context.resume_local == true and resolved.index == target and resolved.vertical_fraction or nil }
     end
     self:_arm_preprocess_notice(resolved.index)
     self.return_to = self.context.source_context and self.context.source_context.on_return or nil
@@ -1187,6 +1207,7 @@ function Reader:open(context)
     end
     self.viewer_shown = true
     self:_bind_stream_index_growth()
+    self.webtoon_resume_fraction = resolved.vertical_fraction
     if not self:request_page(resolved.index, resolved.segment) then
         self:force_close("open_failed")
         return false
@@ -1194,11 +1215,144 @@ function Reader:open(context)
     return true
 end
 
+-- Ordinary and strip modes share the existing foreground loading contract.
+function Reader:_request_page_data(image, generation, callbacks, memory_source)
+    local use_memory = memory_source ~= nil
+    local profile_provider
+    if not use_memory and self:_processing_enabled() then
+        profile_provider = self:_processing_profile(image)
+        if not profile_provider then
+            profile_provider = function(ready_image)
+                return self:_processing_profile(ready_image)
+            end
+        end
+    end
+    local ok, job_or_error
+    if use_memory then
+        ok, job_or_error = pcall(memory_source.request, memory_source,
+            generation, image,
+            function(ready_image, metadata)
+                return self:_memory_target(ready_image, metadata)
+            end, callbacks, self:_memory_processor(image))
+    elseif self.prepared_pages then
+        ok, job_or_error = pcall(self.prepared_pages.request, self.prepared_pages,
+            generation, image, profile_provider, callbacks)
+    else
+        ok, job_or_error = pcall(self.loader.request, self.loader,
+            generation, image, callbacks)
+    end
+    if not ok then
+        callbacks.on_error({ code = "transport", detail = job_or_error })
+        return false
+    end
+    return true
+end
+
+function Reader:_close_webtoon()
+    local session = self.webtoon_session
+    self.webtoon_session = nil
+    if session then session:close() end
+    self.webtoon_fraction = nil
+    self.webtoon_resume_fraction = nil
+    self.webtoon_request = nil
+end
+
+function Reader:_publish_webtoon(frame, point, metadata)
+    local previous = {}
+    local keys = {"page_buffer", "page_crop", "page_path", "page_metadata", "page_dimensions",
+        "current_segments", "position", "pan_y", "current_index", "webtoon_fraction", "page_viewport"}
+    for _, key in ipairs(keys) do previous[key] = self[key] end
+    self.page_buffer, self.page_crop = frame, nil
+    self.page_dimensions = {width=frame:getWidth(),height=frame:getHeight()}
+    self.page_metadata = metadata
+    self.page_path = self:_image(point.index).path
+    self.current_segments = {"whole"}
+    self.position = {index=point.index,segment="whole"}
+    self.webtoon_fraction, self.pan_y = point.fraction, 0
+    local change = self:_page_change(previous.current_index, point.index, "whole", "whole")
+    if not self:_display_segment("whole", true, change) then
+        for _, key in ipairs(keys) do self[key] = previous[key] end
+        return false
+    end
+    release_buffer(self.shell, previous.page_buffer)
+    if self.context and not self.closing then
+        self:_protect(point.index)
+        self:_prefetch(point.index)
+    end
+    return true
+end
+
+function Reader:_request_webtoon(index, fraction)
+    local session = self.webtoon_session
+    if not session then
+        local width, height = self.shell:get_content_size()
+        local generation = self.generation
+        session = Webtoon:new{
+            width = width, height = height, settings = self.reader_settings,
+            count = function() return self:_count() end,
+            scale = function(buffer, w, h)
+                local renderer = self:_renderer()
+                if renderer and type(renderer.scaleBlitBuffer) == "function" then
+                    return renderer:scaleBlitBuffer(buffer, w, h, false)
+                end
+                return buffer:scale(w, h)
+            end,
+            load = function(target, ready, failed)
+                local image = self:_image(target)
+                local memory_source = self:_page_source(image)
+                local callbacks = {
+                    on_ready = function(page, second, third)
+                        if self.webtoon_session ~= session or not self.context
+                            or not self.state:is_current(generation) then
+                            if memory_source then release_buffer(nil, page) end
+                            return
+                        end
+                        local metadata = (memory_source and second or third) or {}
+                        local buffer, err = page, nil
+                        if not memory_source then buffer, err = self:_decode_page_path(page, image, metadata) end
+                        if not buffer then return failed({code="decode",reason="webtoon_image_invalid"}) end
+                        local crop = self:_detect_crop(buffer, metadata)
+                        if self:_stream_page_result_ready(metadata) then self:_mark_stream_page_ready(target,generation) end
+                        if metadata.prepared_key then self.prepared_cache_keys[image.path] = metadata.prepared_key end
+                        self:_note_preprocess_success(image, metadata)
+                        ready(buffer,{crop=crop})
+                    end,
+                    on_error = failed,
+                }
+                return self:_request_page_data(image, generation, callbacks, memory_source)
+            end,
+            show = function(frame, point, metadata)
+                if self.webtoon_session ~= session or not self.context
+                    or not self.state:is_current(generation) then return false end
+                return self:_publish_webtoon(frame,point,metadata)
+            end,
+            on_error = function(err)
+                if self.webtoon_session ~= session or not self.context then return end
+                if self.page_buffer then
+                    self.shell:show_status("长条图片加载失败；再次翻页可重试。\n" .. Errors.message(err),3)
+                else
+                    self.shell:show_error{message=Errors.message(err),on_retry=function()
+                        return session:seek(index,fraction)
+                    end}
+                end
+            end,
+        }
+        self.webtoon_session = session
+    end
+    if not session.busy then self.webtoon_request = {index=index,fraction=fraction} end
+    return session:seek(index,fraction)
+end
+
 function Reader:request_page(index, wanted_segment)
     if self.closing or not self.context or not self.state:is_current(self.generation) then
         return true
     end
     local target = clamp(index, 1, self:_count())
+    if self.fit_mode == "webtoon" and self.shell and not self.shell.legacy then
+        local fraction = self.webtoon_resume_fraction
+        self.webtoon_resume_fraction = nil
+        return self:_request_webtoon(target, fraction)
+    end
     local image = self:_image(target)
     if not image then return true end
     wanted_segment = wanted_segment or "whole"
@@ -1228,15 +1382,6 @@ function Reader:request_page(index, wanted_segment)
     end
     local memory_source = self:_page_source(image)
     local use_memory = memory_source ~= nil
-    local profile_provider
-    if not use_memory and self:_processing_enabled() then
-        profile_provider = self:_processing_profile(image)
-        if not profile_provider then
-            profile_provider = function(ready_image)
-                return self:_processing_profile(ready_image)
-            end
-        end
-    end
     local callbacks = {
             on_ready = function(page, second, third)
                 if not self:_active(serial, generation) then
@@ -1283,25 +1428,7 @@ function Reader:request_page(index, wanted_segment)
                 end)
             end,
         }
-    local ok, job_or_error
-    if use_memory then
-        ok, job_or_error = pcall(memory_source.request, memory_source,
-            generation, image,
-            function(ready_image, metadata)
-                return self:_memory_target(ready_image, metadata)
-            end, callbacks, self:_memory_processor(image))
-    elseif self.prepared_pages then
-        ok, job_or_error = pcall(self.prepared_pages.request, self.prepared_pages,
-            generation, image, profile_provider, callbacks)
-    else
-        ok, job_or_error = pcall(self.loader.request, self.loader,
-            generation, image, callbacks)
-    end
-    if not ok then
-        callbacks.on_error({ code = "transport", detail = job_or_error })
-        return false
-    end
-    return true
+    return self:_request_page_data(image, generation, callbacks, memory_source)
 end
 
 function Reader:_chapter_position()
@@ -1387,6 +1514,11 @@ function Reader:_pan_vertical(forward)
 end
 
 function Reader:next_page()
+    if self.webtoon_session then
+        if self.webtoon_session:next() then return true end
+        if self:_wait_for_stream_end() then return true end
+        return self:_ask_next_chapter()
+    end
     if self.panel_entry then return self:_move_panel(1) end
     if self:_pan_vertical(true) then return true end
     if not self.position then return true end
@@ -1406,6 +1538,7 @@ function Reader:next_page()
 end
 
 function Reader:previous_page()
+    if self.webtoon_session then return self.webtoon_session:previous() end
     if self.panel_entry then return self:_move_panel(-1) end
     if self:_pan_vertical(false) then return true end
     if not self.position then return true end
@@ -1426,6 +1559,7 @@ function Reader:_reset_quadrant_zoom(_reason)
 end
 
 function Reader:onTwoFingerTap(source_shell, gesture)
+    if self.webtoon_session then return false end
     if self.closing or not self.page_buffer or not self.position or not self.shell
         or self.pending_request or self.panel_entry or self.panel_session or self.panel_restore then
         return false
@@ -1526,6 +1660,9 @@ function Reader:_show_panel(buffer, _panel, index, count)
 end
 
 function Reader:enter_panel_mode(desired)
+    if self.webtoon_session then
+        return self.shell:show_status("请先将图片显示切换为整页，再使用智能分格。")
+    end
     if self.closing or not self.page_buffer or not self.position or self.pending_request
         or self.panel_restore or self.reader_settings.panel_zoom_enabled ~= true
         or not self.panel_source or not self.panel_detector then return false end
@@ -1709,8 +1846,22 @@ function Reader:_persist_reader(values)
     return true
 end
 
+function Reader:_prepare_fit_mode(mode)
+    if mode ~= "webtoon" then return true end
+    if mode == "webtoon" and self.shell and self.shell.legacy then return false end
+    if mode == "webtoon" and self.panel_session then
+        if self.page_buffer and not self:_display_segment("whole", false) then return false end
+        local panel = self.panel_session
+        self.panel_session, self.panel_entry, self.panel_resume, self.panel_restore = nil, nil, nil, nil
+        panel:close()
+    end
+    self:_reset_quadrant_zoom("webtoon")
+    return true
+end
+
 function Reader:set_fit_mode(mode)
-    if mode ~= "page" and mode ~= "width" and mode ~= "match" then return false end
+    if mode ~= "page" and mode ~= "width" and mode ~= "match" and mode ~= "webtoon" then return false end
+    if not self:_prepare_fit_mode(mode) then return false end
     local values = copy_table(self.reader_settings)
     values.fit_mode = mode
     local saved = self:_persist_reader(values)
@@ -1719,8 +1870,8 @@ function Reader:set_fit_mode(mode)
     if self.shell and self.shell.legacy and self.shell.viewer
         and self.shell.viewer.set_fit_mode then
         self.shell.viewer:set_fit_mode(mode)
-    elseif self.position then
-        self:request_page(self.position.index, self.position.segment)
+    else
+        return self:_restart_processed_page()
     end
     return true
 end
@@ -1801,9 +1952,14 @@ function Reader:set_progress_bar_thickness(value)
 end
 
 function Reader:_restart_processed_page()
-    if not self.position then return true end
-    local index, segment = self.position.index, self.position.segment or "whole"
+    local target = self.position or self.webtoon_request or self.pending_request
+    local fraction = self.webtoon_fraction or (target and target.fraction)
+    self:_close_webtoon()
+    self.webtoon_resume_fraction = self.fit_mode == "webtoon" and fraction or nil
+    if not target then return true end
+    local index, segment = target.index, target.segment or "whole"
     self.pending_request = nil
+    self.request_serial = self.request_serial + 1
     self.prepared_cache_keys = {}
     if self.prepared_pages
         and type(self.prepared_pages.cancel_processing) == "function" then
@@ -1846,6 +2002,7 @@ function Reader:reload_settings(values)
     end
     local previous = self.reader_settings or {}
     local next_values = copy_table(values)
+    if not self:_prepare_fit_mode(next_values.fit_mode) then return false end
     local direction_only = self.panel_session and previous.direction ~= next_values.direction
         and same_settings(previous, next_values, "direction")
     local filter_changed = previous.gray_enhance_enabled ~= next_values.gray_enhance_enabled
@@ -2003,7 +2160,7 @@ end
 
 function Reader:onDoubleTap()
     local next_mode = self.fit_mode == "page" and "width"
-        or self.fit_mode == "width" and "match" or "page"
+        or self.fit_mode == "width" and "match" or self.fit_mode == "match" and "webtoon" or "page"
     return self:set_fit_mode(next_mode)
 end
 
@@ -2083,10 +2240,32 @@ function Reader:toggle_controls(section)
     elseif section == "display" then
         title = "图片显示"
         local fit_label = self.fit_mode == "page" and "整页"
-            or self.fit_mode == "width" and "适宽" or "调整匹配"
+            or self.fit_mode == "width" and "适宽" or self.fit_mode == "webtoon" and "长条连续阅读" or "调整匹配"
+        local function cycle(key, choices)
+            local selected = 1
+            for i, value in ipairs(choices) do
+                if self.reader_settings[key] == value then selected = i % #choices + 1; break end
+            end
+            local values = copy_table(self.reader_settings)
+            values[key] = choices[selected]
+            if not self:_persist_reader(values) then return false end
+            self:_restart_processed_page()
+            return show_section("display")
+        end
         actions = {
             action("显示：" .. fit_label,
                 "toggle fit mode", function() return self:onDoubleTap() end),
+            action("阅读背景：" .. (self.reader_settings.display_background == "black" and "黑色"
+                or self.reader_settings.display_background == "white" and "白色" or "自动黑白"),
+                "cycle display background", function() return cycle("display_background",{"auto","white","black"}) end),
+            action(self.reader_settings.webtoon_smart_enabled ~= false and "长条智能翻屏：开" or "长条智能翻屏：关",
+                "toggle smart strip", function() return cycle("webtoon_smart_enabled",{true,false}) end),
+            action(("长条重叠：%d%%"):format(self.reader_settings.webtoon_overlap_percent or 5),
+                "cycle strip overlap", function() return cycle("webtoon_overlap_percent",{0,5,10,15,20}) end),
+            action(("长条最多适高：%d%%"):format(self.reader_settings.webtoon_fit_percent or 5),
+                "cycle strip fit", function() return cycle("webtoon_fit_percent",{0,5,10,15}) end),
+            action(("长条总边距：%d%%"):format(self.reader_settings.webtoon_margin_percent or 0),
+                "cycle strip margin", function() return cycle("webtoon_margin_percent",{0,5,10,15,20}) end),
             action("返回漫画列表", "close reader controls", function()
                 return self:force_close("controls_return")
             end),
@@ -2448,6 +2627,7 @@ function Reader:force_close(source)
         return true
     end
     self.closing = true
+    self:_close_webtoon()
     local close_control = { suppress_return = teardown_source }
     self.close_control = close_control
     self.request_serial = self.request_serial + 1

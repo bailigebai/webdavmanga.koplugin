@@ -3,6 +3,11 @@ Progress.__index = Progress
 local HISTORY_SCHEMA_VERSION = 2
 local Identity = require("webdavmanga.manga_identity")
 
+local function vertical_fraction(value)
+    value = tonumber(value)
+    if value and value == value and value >= 0 and value < 1 then return value end
+end
+
 local function default_md5(value)
     return require("ffi/sha2").md5(value)
 end
@@ -88,6 +93,7 @@ local function copy_history_record(record)
         chapter = chapter,
         image_path = tostring(record.image_path or ""),
         index = tonumber(record.index) or 1,
+        vertical_fraction = vertical_fraction(record.vertical_fraction),
         segment = (record.segment == "left" or record.segment == "right")
             and record.segment or "whole",
         total = tonumber(record.total) or 1,
@@ -227,6 +233,7 @@ function Progress:save(chapter_id, image_path, index, segment, history_context)
         index = tonumber(index) or 1,
         segment = segment,
         server_last_read = previous and previous.server_last_read,
+        vertical_fraction = vertical_fraction(history_context and history_context.vertical_fraction),
     }
     if history_context and history_context.connection
         and history_context.manga and history_context.chapter then
@@ -242,6 +249,7 @@ function Progress:save(chapter_id, image_path, index, segment, history_context)
             index = tonumber(index) or 1,
             segment = segment,
             total = tonumber(history_context.total) or 1,
+            vertical_fraction = vertical_fraction(history_context.vertical_fraction),
             updated_at = tonumber(self.clock()) or 0,
             layout = history_context.layout ~= nil and tostring(history_context.layout) or nil,
             cover_hint = copy_cover_hint(history_context.cover_hint),
@@ -369,6 +377,8 @@ function Progress:resolve(chapter_id, chapter_index, valid_segments)
     if fallback < 1 then fallback = 1 end
     if fallback > count then fallback = count end
     local index = record and chapter_index:find(record.image_path, record.index) or nil
+    local matched_image = type(index) == "number" and index >= 1 and index <= count
+        and index == math.floor(index)
     if type(index) ~= "number" or index < 1 or index > count
         or index ~= math.floor(index) then
         index = fallback
@@ -379,7 +389,8 @@ function Progress:resolve(chapter_id, chapter_index, valid_segments)
     if type(valid_segments) ~= "table" or valid_segments[segment] ~= true then
         segment = "whole"
     end
-    return { index = index, segment = segment }
+    return { index = index, segment = segment,
+        vertical_fraction = matched_image and vertical_fraction(record.vertical_fraction) or nil }
 end
 
 return Progress

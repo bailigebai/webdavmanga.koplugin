@@ -163,7 +163,8 @@ local function production_widget(shell, dependencies)
             margin = 0,
             padding = 0,
             bordersize = 0,
-            background = dependencies.Blitbuffer.COLOR_WHITE,
+            background = model.background == "black" and dependencies.Blitbuffer.COLOR_BLACK
+                or dependencies.Blitbuffer.COLOR_WHITE,
             dependencies.CenterContainer:new{
                 dimen = dependencies.Geom:new{ w = width, h = height },
                 image,
@@ -678,6 +679,7 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
         buffer = buffer,
         viewport = viewport,
         display_scale = page_change.display_scale == 0 and 0 or 1,
+        background = page_change.background == "black" and "black" or "white",
         reader_generation = page_change.reader_generation,
         progress = self.progress,
         show_progress = self.show_progress,

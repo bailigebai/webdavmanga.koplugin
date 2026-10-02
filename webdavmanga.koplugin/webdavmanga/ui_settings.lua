@@ -939,13 +939,21 @@ local function default_ui()
                 },
             },
             {
-                key = "display", title = "图片显示", summary = "适配、进度条",
+                key = "display", title = "图片显示", summary = "长条、适配、背景、进度条",
                 items = {
                     { key = "fit_mode", title = "显示模式", choices = {
                         { value = "page", text = "整页" },
                         { value = "width", text = "适宽" },
                         { value = "match", text = "调整匹配" },
+                        { value = "webtoon", text = "长条连续阅读" },
                     } },
+                    { key = "display_background", title = "阅读背景", choices = {
+                        {value="auto",text="自动黑白"}, {value="white",text="白色"}, {value="black",text="黑色"},
+                    } },
+                    { key = "webtoon_smart_enabled", title = "长条智能翻屏", choices = on_off },
+                    { key = "webtoon_overlap_percent", title = "长条翻屏重叠", choices = number_choices({0,5,10,15,20},"%") },
+                    { key = "webtoon_fit_percent", title = "长条最多适高", choices = number_choices({0,5,10,15},"%") },
+                    { key = "webtoon_margin_percent", title = "长条左右总边距", choices = number_choices({0,5,10,15,20},"%") },
                     { key = "show_progress_bar", title = "顶部进度条", choices = on_off },
                     { key = "progress_bar_thickness", title = "进度条厚度", choices = {
                         { value = 1, text = "1 倍（细）" },

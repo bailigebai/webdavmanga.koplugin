@@ -29,7 +29,7 @@ chapters[2].is_read = nil
 assert(Resume.series_target(chapters, {chapter_id="v1",page=90}).chapter_id == "v1")
 assert(Resume.series_target(chapters) == nil, "unknown unread state must not select first chapter")
 
-local events, model, opened, notices = {}, nil, nil, {}
+local events, model, opened, notices, opened_context = {}, nil, nil, {}, nil
 local fail_save, fail_open, fail_library, throw_library = false, false, false, false
 local throw_save, fail_load, stored_descriptor = false, false, desc
 local busy_save = false
@@ -48,6 +48,7 @@ local pointer = {
 local adapter = Ui:new{
     catalog={get=function(_,id) if id == "s" then return source end end},
     reader={open=function(_, context)
+        opened_context=context
         events[#events+1]="open"
         if not fail_open then context.source_context.on_first_page() end
         return not fail_open
@@ -93,6 +94,7 @@ events={};fail_open=false
 adapter:request_open(desc,source,{local_position={chapter_id="v1",page=30}})
 model.items[2].callback()
 assert(table.concat(events,",")=="save:v1,load,open,library" and opened.options.page==30)
+assert(opened_context.resume_local==true,"OPDS local continue must distinguish saved strip position from page-start actions")
 model.items[1].callback()
 assert(#events==4,"double callbacks must not save or open twice")
 for _,throws in ipairs({false,true}) do

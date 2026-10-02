@@ -1,5 +1,22 @@
 # 验证记录
 
+## 2026-10-02 OPDS 加载与长条显示
+
+本次截图是根目录加载失败，不能沿用此前章节 `ambiguous_server` 的根因。已完整读取723347字节设备日志，未找到本次目录失败的具体分类。按设备保存的两个 Suwayomi 地址分别进行无代理、同源、只读请求，均得到 `ConnectionRefusedError`，没有获得目录响应。探测结果只记录类别；地址、响应正文、配置及原始日志不进入仓库。真实服务状态与根目录恢复仍待确认。
+
+参考代码固定为 [opdsforcomic dcd99df6](https://github.com/hugo1120/opdsforcomic.koplugin/tree/dcd99df6079d7598c9fe5958ed7c53061f5fe86b)、[Kamare b85ab0a8](https://github.com/fpammer/kamare.koplugin/tree/b85ab0a81d4a36780659629a6a421914253aff6b) 和 [smart-webtoon 13913e5c](https://github.com/QQRush/smart-webtoon-scroll.koplugin/tree/13913e5c0d2dae01a29eabc71850540581e58c85)。前者使用 KOReader 联网入口；Kamare 使用 Kavita API，其接入不能直接用作 Suwayomi OPDS。smart-webtoon 的行为参考为空白分隔与连续翻屏，其树未提供许可证，因此没有复制其源码；独立实现还避免了向前吸附越过未显示内容的风险。联网、ImageWidget、Blitbuffer 和缩放所有权契约另核对 [KOReader 固定源码](https://github.com/koreader/koreader/tree/896dd63e363adf0ac9ce6a81bff76638c42c1044) 及其 base 修订 fe41d7698ad8a6a7caf794d9b601229009a34053。
+
+- OPDS 缺口先以固定旧提交945da2ab复现：Ui 丢弃 Async 的第三错误参数，Client 丢弃传输 status，且请求缺少联网入口。新增规格先失败再修复；最终39项验证联网等待/重复/取消/过期回调，以及证书、超时、拒绝连接、响应超限和后台故障安全分类。
+- 长条 Session 的95项检查验证不同宽度跨图合成、白黑分隔、重叠与留白、完整屏章末、必需邻图失败重试、拒绝显示、晚到缓冲释放、最多两张源缓存和失败跳图历史。真实 Reader/Settings/Progress 接入规格验证加载器串行取图、成功显示才更新进度、图内归一化续读，以及全部输入/屏幕缓冲恰好释放一次。
+- 新上下文只读审查发现并修复：旧普通/PreparedPages 回调覆盖长条、象限/分格未退出、本地 OPDS 继续丢失比例、失败seek提前清历史；再次复核发现并修复全局设置重载绕过互斥及首次长条尚未显示时切换停住。测试均观察失败再修复，最后复核未遗留相关范围的阻断项。
+- 审查后最终全量运行170个Lua规格、94个Lua文件语法检查，退出码0。最终日志保存在本机 `opds-webtoon-final-specs-20261002.log`。没有放宽既有测试断言。
+- 严格110文件清单、敏感内容扫描、固定官方原生库哈希、ZIP逐文件一致和两次构建字节一致性全部通过。新安装ZIP为 `releases/webdavmanga.koplugin-v0.4.11-20261002-opds-webtoon.zip`，826462字节，SHA256 `05F040F9D421ED58250D2BD938ABFAA02DF8225E6D792108228A8BA1503126A8`；交付目录同时保留一份。
+- 首次安装前再次核对时设备已从 Windows 列表消失，该次未修改设备文件。设备安装须完整备份旧109文件，替换11个旧文件并增加1个模块，再完整读回110文件；以本机安装报告为证据。
+
+验收：确认 Suwayomi 服务运行且浏览器能打开相同 OPDS 地址；完全退出并重启 KOReader，刷新目录、进入系列/章节、检查首图和连续翻页。在“漫画阅读设置 → 图片显示”选择“长条连续”，检查跨图屏幕、前后翻、失败重试、继续阅读和切回整页。
+
+未解决：真实服务器返回及Kindle显示未验证；本机被拒绝连接不能证明Kindle端相同原因。空白检测是采样启发式；极长图片按目标像素预算降采样可能模糊；原生解码临时内存峰值尚未测量。一屏超过64个极短图片片段时明确失败。之前RAR修复的实机验收不属于本次运行证据。
+
 ## 2026-10-02 Suwayomi OPDS 修复
 
 用户确认服务为 Suwayomi，Kindle 新增日志三次记录固定类别 `ambiguous_server`。原始日志仅保存在本机，未加入仓库。

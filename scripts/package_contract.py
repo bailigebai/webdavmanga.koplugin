@@ -16,7 +16,7 @@ opds_drivers/kavita opds_drivers/komga opds_drivers/suwayomi opds_pages opds_par
 opds_resume opds_url page_processor page_sequence panel_detector panel_session panel_source path
 pinyin_initials premium_access prepared_pages progress quadrant_zoom remote_stream safe_callback
 series_navigation settings state strict_integer tone_adjust transport ui_browser ui_cover_grid
-ui_library ui_opds ui_reader ui_reader_shell ui_registry ui_settings webdav_xml
+ui_library ui_opds ui_reader ui_reader_shell ui_registry ui_settings webdav_xml webtoon_session
 """.split()
 SAMPLES = """baseline.jpg grayscale.png lossless.WEBP lossy.webp manifest.lua progressive.jpeg
 rgba.PNG sample.tif sample.TIFF static.gif vector.svg""".split()

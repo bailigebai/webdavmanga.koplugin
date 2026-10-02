@@ -166,3 +166,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+The 2026-10-02 OPDS loading and webtoon display changes for version 0.4.11
+use KOReader's connectivity gate and retain bounded catalog failure categories.
+Optional webtoon display composes a bounded screen across adjacent images,
+stores a normalized local reading anchor, and retires incompatible display
+sessions and stale requests. It was independently implemented from observed
+behavior; no source from smart-webtoon-scroll.koplugin was incorporated.
+Native decoder peak memory and live-server/display behavior remain subject
+to device validation. Reference revisions are recorded in docs/verification.md
+in the source repository.

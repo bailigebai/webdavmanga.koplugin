@@ -29,6 +29,11 @@ local DEFAULT_READER = {
     -- page: fit the complete image in the screen; width: fit the screen
     -- width and allow vertical paging; match: keep KOReader's automatic fit.
     fit_mode = "page",
+    display_background = "auto",
+    webtoon_smart_enabled = true,
+    webtoon_overlap_percent = 5,
+    webtoon_fit_percent = 5,
+    webtoon_margin_percent = 0,
     gray_enhance_enabled = false,
     gray_enhance_preset = "original",
     gray_enhance_custom_presets = {},
@@ -774,8 +779,16 @@ function Settings:set_reader(values)
         return nil, "invalid_cover_cache_limit"
     end
     if reader.fit_mode ~= "page" and reader.fit_mode ~= "width"
-        and reader.fit_mode ~= "match" then
+        and reader.fit_mode ~= "match" and reader.fit_mode ~= "webtoon" then
         return nil, "invalid_fit_mode"
+    end
+    if reader.display_background ~= "auto" and reader.display_background ~= "white"
+        and reader.display_background ~= "black" then return nil, "invalid_display_background" end
+    if type(reader.webtoon_smart_enabled) ~= "boolean"
+        or not is_integer_in_range(reader.webtoon_overlap_percent, 0, 20)
+        or not is_integer_in_range(reader.webtoon_fit_percent, 0, 15)
+        or not is_integer_in_range(reader.webtoon_margin_percent, 0, 20) then
+        return nil, "invalid_webtoon_settings"
     end
     if type(reader.show_progress_bar) ~= "boolean" then
         return nil, "invalid_progress_bar_setting"

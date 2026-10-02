@@ -17,6 +17,42 @@ local function pointer_write_message(reason)
     return "阅读指针保存失败，请重试。"
 end
 
+local function default_network_manager()
+    local ok, manager = pcall(require, "ui/network/manager")
+    if ok and type(manager) == "table" then return manager end
+    return { willRerunWhenConnected = function() return false end }
+end
+
+local worker_reasons = {
+    ["background subprocess unavailable"] = "worker_unavailable",
+    ["async timeout"] = "request_timeout",
+    ["malformed subprocess output"] = "worker_output_invalid",
+    ["subprocess status failed"] = "worker_status_failed",
+    ["UI scheduler unavailable"] = "scheduler_unavailable",
+}
+local catalog_reasons = {
+    worker_unavailable = true, request_timeout = true, worker_output_invalid = true,
+    worker_status_failed = true, scheduler_unavailable = true, worker_exception = true,
+    catalog_too_large = true, catalog_request_failed = true, tls = true, http = true,
+    decode = true, unsafe_catalog_url = true, missing_source = true, network_unavailable = true,
+    server_unavailable = true,
+}
+local function worker_error(detail)
+    local reason = worker_reasons[detail] or "worker_exception"
+    if type(detail) == "string" and detail:match("^subprocess payload exceeds %d+ bytes$") then
+        reason = "catalog_too_large"
+    end
+    return { code = "transport", reason = reason }
+end
+
+function Ui:_log_catalog_error(err)
+    local reason = type(err) == "table" and (err.reason or err.code) or err
+    if not catalog_reasons[reason] then reason = "catalog_request_failed" end
+    if self.logger and type(self.logger.warn) == "function" then
+        pcall(self.logger.warn, "WebDavManga OPDS:", "catalog_load", "reason=" .. reason)
+    end
+end
+
 local function default_ui()
     local InfoMessage = require("ui/widget/infomessage")
     local Menu = require("ui/widget/menu")
@@ -169,6 +205,7 @@ function Ui:new(options)
         driver = options.driver or Driver,
         logger = options.logger,
         async = options.async or Async,
+        network_manager = options.network_manager or default_network_manager(),
         catalog_requests = {},
         current = nil,
         navigation_generation = 0,
@@ -307,6 +344,7 @@ function Ui:request_open(descriptor, source, options)
             local page = math.max(1, math.min(choice.page, selected.page_count, verified.page_count))
             local handoff, result = pcall(self.open_descriptor, self, verified, source,
                 { pointer_path = path, page = page, on_return = options.on_return,
+                    resume_local = choice.kind == "local",
                     navigation_page = options.navigation_page,
                     chapter_order = options.chapter_order, resolve_chapter = options.resolve_chapter })
             if not handoff or result ~= true then return self:_show_info("OPDS 章节打开失败，请重试。") end
@@ -530,18 +568,43 @@ function Ui:_fetch_async(entry, url, done, generation, is_active, selection_gene
     generation = generation or self.navigation_generation
     local request = { selection_generation = selection_generation }
     self.catalog_requests[request] = true
-    request.handle = self.async.run(function()
-        local feed, err = self:_fetch(entry, url)
-        return { feed = feed, error = err }
-    end, function(ok, result)
+    local function current()
+        return not request.cancelled and self:_is_current(generation)
+            and (not selection_generation or self.selection_generation == selection_generation)
+            and (not is_active or is_active())
+    end
+    local function start()
+        if request.started or not current() then return end
+        request.started = true
+        request.handle = self.async.run(function()
+            local feed, err = self:_fetch(entry, url)
+            return { feed = feed, error = err }
+        end, function(ok, result, async_error)
+            self.catalog_requests[request] = nil
+            if not current() then return end
+            if not ok then
+                local err = worker_error(async_error)
+                self:_log_catalog_error(err)
+                return done(nil, err)
+            end
+            result = type(result) == "table" and result or {}
+            if not result.feed then self:_log_catalog_error(result.error) end
+            done(result.feed, result.error)
+        end, { max_payload_bytes = 8 * 1024 * 1024 })
+        if request.cancelled and request.handle and request.handle.cancel then request.handle:cancel() end
+    end
+    local gate_ok, deferred = pcall(self.network_manager.willRerunWhenConnected,
+        self.network_manager, start)
+    if not gate_ok then
         self.catalog_requests[request] = nil
-        if request.cancelled or not self:_is_current(generation)
-            or (selection_generation and self.selection_generation ~= selection_generation)
-            or (is_active and not is_active()) then return end
-        result = ok and type(result) == "table" and result or {}
-        done(result.feed, result.error)
-    end, { max_payload_bytes = 8 * 1024 * 1024 })
-    if request.cancelled and request.handle and request.handle.cancel then request.handle:cancel() end
+        if current() then
+            local err = { code = "transport", reason = "network_unavailable" }
+            self:_log_catalog_error(err)
+            done(nil, err)
+        end
+    elseif not deferred then
+        start()
+    end
     return true
 end
 
@@ -649,6 +712,18 @@ end
 
 local function fetch_error_message(err)
     if type(err) ~= "table" then return "网络或服务器暂时不可用，请重试。" end
+    if err.reason == "request_timeout" then
+        return "OPDS 请求超时，请确认 Wi-Fi 和服务器可用后重试。"
+    elseif err.reason == "server_unavailable" then
+        return "服务器连接被拒绝，请确认 Suwayomi 等 OPDS 服务已启动，地址与端口正确后重试。"
+    elseif err.reason == "catalog_too_large" then
+        return "OPDS 目录响应过大，请减小服务器每页条目数后重试。"
+    elseif err.reason == "worker_unavailable" then
+        return "OPDS 后台进程无法启动，请完全退出并重启 KOReader 后重试。"
+    elseif err.reason == "worker_output_invalid" or err.reason == "worker_status_failed"
+        or err.reason == "scheduler_unavailable" or err.reason == "worker_exception" then
+        return "OPDS 后台加载异常，请重启 KOReader 后重试；仍失败请提供新增日志。"
+    end
     if err.code == "http" then
         local status = tonumber(err.http_status)
         if status == 401 or status == 403 then
@@ -977,7 +1052,7 @@ function Ui:open_descriptor(descriptor, source, options)
         record.source_context.navigation = nav
     end
     local context = { connection = record.connection, manga = record.manga, chapter = record.chapter,
-        chapter_index = index, initial_page = options.page, layout = "opds",
+        chapter_index = index, initial_page = options.page, resume_local = options.resume_local == true, layout = "opds",
         cover_hint = record.cover_hint, source_context = record.source_context }
     if self.ui.close_menu then self.ui:close_menu("replace") end
     local opened = self.reader:open(context) == true

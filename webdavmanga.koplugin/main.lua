@@ -771,6 +771,7 @@ function WebDavManga:init()
     if self.opds_catalog and not deps.opds_ui then
         self.opds_ui = OpdsUi:new{
             catalog = self.opds_catalog,
+            network_manager = deps.network_manager,
             logger = logger,
             async = deps.async or Async,
             client_factory = function(entry)

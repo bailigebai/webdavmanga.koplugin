@@ -17,22 +17,27 @@ function PageProcessor.target_size(width, height, settings, content_w, content_h
     content_w, content_h = positive(content_w), positive(content_h)
     if not width or not height or not content_w or not content_h then return nil end
     settings = settings or {}
-    local split = #PageSequence.segments(width, height, settings) == 2
+    local webtoon = settings.fit_mode == "webtoon"
+    local split = not webtoon and #PageSequence.segments(width, height, settings) == 2
     local scale
     if split then
         local cut = math.max(0.1, math.min(0.9,
             (tonumber(settings.split_cut_percent) or 50) / 100))
         scale = math.min(content_w / math.max(width * cut, width * (1 - cut)),
             content_h / height)
-    elseif settings.fit_mode == "width" then
+    elseif settings.fit_mode == "width" or webtoon then
         scale = content_w / width
     else
         scale = math.min(content_w / width, content_h / height)
     end
-    scale = math.min(scale, math.sqrt((2 * content_w * content_h) / (width * height)))
+    -- At most 8 MiB per target even with four-byte pixels. This bounds the
+    -- target, not the native decoder's temporary full-source allocation.
+    local max_pixels = webtoon and math.min(4 * content_w * content_h, 2 * 1024 * 1024)
+        or 2 * content_w * content_h
+    scale = math.min(scale, math.sqrt(max_pixels / (width * height)))
     local target_w = math.max(1, math.floor(width * scale))
     local target_h = math.max(1, math.floor(height * scale))
-    local max_pixels = math.floor(2 * content_w * content_h)
+    max_pixels = math.floor(max_pixels)
     while target_w * target_h > max_pixels do
         if target_w >= target_h then target_w = target_w - 1
         else target_h = target_h - 1 end
