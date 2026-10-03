@@ -121,6 +121,14 @@ local function default_ui()
             title = model.title, subtitle = model.subtitle,
             covers_fullscreen = true, is_popout = false,
             item_table = items,
+            -- Stock Menu also invokes close_callback after a row selection.
+            -- That would navigate back and cancel an open chapter or metadata
+            -- request. Only explicit Back/X should run our close callback.
+            onMenuSelect = function(selected_menu, item)
+                if item.select_enabled == false then return true end
+                if item.select_enabled_func and not item.select_enabled_func() then return true end
+                return selected_menu:onMenuChoice(item)
+            end,
             close_callback = function()
                 if self.closed_menu[menu] then return true end
                 self.closed_menu[menu] = true
