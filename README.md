@@ -1,12 +1,12 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.12，2026-10-02 智能分格重构包**。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.12，2026-10-03 密钥提示更新包**。密钥激活界面新增“插件售价50元”。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.12-20261002-panel-reading.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.12-20261003-license-price.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
 
 ## 本次重构：智能分格阅读
 

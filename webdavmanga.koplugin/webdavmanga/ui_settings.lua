@@ -579,6 +579,7 @@ local function default_ui()
         local status = type(model.status) == "function" and model.status() or {}
         local subtitle = status.authorized and "当前设备已激活，可离线使用。"
             or "首次激活需要联网；激活成功后可离线使用。"
+        subtitle = "插件售价50元。\n" .. subtitle
         local function clear_local_authorization()
             local current = type(model.status) == "function" and model.status() or {}
             if current.authorized ~= true then

@@ -1,10 +1,10 @@
 {
   "version": "0.4.12",
-  "snapshot": "2026-10-02-panel-reading",
+  "snapshot": "2026-10-03-license-price",
   "history": "New repository imported from a source snapshot; old Git history unavailable.",
   "package": {
-    "path": "releases/webdavmanga.koplugin-v0.4.12-20261002-panel-reading.zip",
-    "sha256": "9813d789b508489ffb99dec4ac45c15ea2fe5c79851d51db2974d0aab3b40445",
+    "path": "releases/webdavmanga.koplugin-v0.4.12-20261003-license-price.zip",
+    "sha256": "ff3e81b5fc781d5208637d5e00a8c4d692d698c94fd1a870c8733bb99921007c",
     "files": 117
   },
   "plugin_files": [
@@ -45,8 +45,8 @@
     },
     {
       "path": "webdavmanga.koplugin/README.md",
-      "bytes": 80817,
-      "sha256": "edbb92ad26c19b550ffada953f0fdb0a9c63e37a1fb3345dc9618dd6856b78a1"
+      "bytes": 80916,
+      "sha256": "1d92d9be360a65e2c8aff319605f07bcea952b7d2c5ebf650c04bda5eb7418b1"
     },
     {
       "path": "webdavmanga.koplugin/resources/format_samples/baseline.jpg",
@@ -580,8 +580,8 @@
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_settings.lua",
-      "bytes": 194236,
-      "sha256": "e65678f69abb7119f306c9c0de4cd4e51ea2281bf6289b04508815ae1a9a0fed"
+      "bytes": 194292,
+      "sha256": "0579480487c77e4b03a70c9809c47728b97edae26dc72c7d891da1bb9e040557"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/webdav_xml.lua",
