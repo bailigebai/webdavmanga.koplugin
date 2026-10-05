@@ -30,6 +30,15 @@ local function host_widgets(observed)
             child.__index = child
             return child
         end
+        function result:getSize()
+            if self.dimen then return self.dimen end
+            if self.text then return {w=math.min(#self.text*10,self.max_width or 400),h=20} end
+            local child=self[1] and self[1]:getSize() or {w=0,h=0}
+            return {w=child.w+2*(self.padding or 0),h=child.h+2*(self.padding or 0)}
+        end
+        function result:free()
+            for _,child in ipairs(self) do if child.free then child:free() end end
+        end
         return result
     end
     local screen = { getWidth=function() return 400 end, getHeight=function() return 600 end,

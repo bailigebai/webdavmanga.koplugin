@@ -1,17 +1,17 @@
 {
-  "version": "0.4.13",
-  "snapshot": "2026-10-03-opds-chapter-open",
+  "version": "0.4.14",
+  "snapshot": "2026-10-05-reader-state-refresh",
   "history": "New repository imported from a source snapshot; old Git history unavailable.",
   "package": {
-    "path": "releases/webdavmanga.koplugin-v0.4.13-20261003-opds-chapter-open.zip",
-    "sha256": "103e3444da976adff6528e0873030074429fef534fe3eee82c2387a998621285",
+    "path": "releases/webdavmanga.koplugin-v0.4.14-20261005-reader-state-refresh.zip",
+    "sha256": "73df07126ab194f14902cebaa4dcbffb1e10a91f35fe576e7352e503bd22b778",
     "files": 117
   },
   "plugin_files": [
     {
       "path": "webdavmanga.koplugin/_meta.lua",
       "bytes": 189,
-      "sha256": "f1bd8683ce91d4b89cde7c8b36e58524085be643cbc4bde1cffabf0d51d51cbb"
+      "sha256": "a87b083e6362fbe97b48f35d760ce1141730aeb9f82e928b6d3bcf390f575335"
     },
     {
       "path": "webdavmanga.koplugin/lib/kindlehf/COPYING-KOReader",
@@ -36,17 +36,17 @@
     {
       "path": "webdavmanga.koplugin/main.lua",
       "bytes": 49913,
-      "sha256": "0e1849220e5c17caf8e576c331d4cc75ef0d1e33822e3a2f1096b5766a24ef88"
+      "sha256": "ba39790bbbeac1c78cad5a12bfb3f75a4a9ff08d713058355d30be5f2226038c"
     },
     {
       "path": "webdavmanga.koplugin/NOTICE",
       "bytes": 13735,
-      "sha256": "03e0c0f5a8bfd8b7f9f346e75bf37ea443e1920aa75b550ef002dd769d98987f"
+      "sha256": "5292da95d77370d89b738c4e332666f0b686448848d0a118f9eaf16d809c4c6c"
     },
     {
       "path": "webdavmanga.koplugin/README.md",
-      "bytes": 81120,
-      "sha256": "b132af6d7b40485f8a8e0d54ac999c4e26a5ac6b7cfaee15114f9f918e9be277"
+      "bytes": 82065,
+      "sha256": "6f18e1b2513470e7511977decc93b509049f76cc782916bd087dcfd5719087f4"
     },
     {
       "path": "webdavmanga.koplugin/resources/format_samples/baseline.jpg",
@@ -500,8 +500,8 @@
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/reader_help.lua",
-      "bytes": 4194,
-      "sha256": "54d3555445055bf1c91897998a66d4f5535bc78384225efc03d6bd90ea8e7720"
+      "bytes": 4866,
+      "sha256": "cba0df1d29e0e3042f536d3200b9b6990e880a437b55a54bef620a946199d872"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/remote_stream.lua",
@@ -565,13 +565,13 @@
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_reader.lua",
-      "bytes": 140082,
-      "sha256": "49917f0227eff414b4523937185ef9f8d89d55932a3e0329607fc6b360d74021"
+      "bytes": 142622,
+      "sha256": "057422e993eed3e8711098b07fc5dee4c26ab6d45a06e27aa8ae3310ccc4c98c"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_reader_shell.lua",
-      "bytes": 46564,
-      "sha256": "3a21655911f30dc3097bc23c26436ad884c4648b8b2395b91328863a7895d13d"
+      "bytes": 48710,
+      "sha256": "ca119c646c1418fa970c93445c3538bd19263294da53495dd96aad7864f04a23"
     },
     {
       "path": "webdavmanga.koplugin/webdavmanga/ui_registry.lua",

@@ -425,11 +425,15 @@ function Reader:_processing_enabled()
         or settings.auto_crop_enabled == true
 end
 
+function Reader:_preprocess_notice_enabled()
+    local settings = self.reader_settings or {}
+    return settings.show_preprocess_success ~= false
+        and (settings.gray_enhance_enabled == true or settings.tone_adjust_enabled == true)
+end
+
 function Reader:_arm_preprocess_notice(index)
     self.preprocess_notice_paths = {}
-    if not self.reader_settings
-        or self.reader_settings.show_preprocess_success == false
-        or not self:_processing_enabled() then
+    if not self:_preprocess_notice_enabled() then
         return
     end
     local total = self:_count()
@@ -444,7 +448,7 @@ function Reader:_arm_preprocess_notice(index)
 end
 
 function Reader:_note_preprocess_success(image, metadata)
-    if not image or type(metadata) ~= "table"
+    if not self:_preprocess_notice_enabled() or not image or type(metadata) ~= "table"
         or (metadata.prepared ~= true and metadata.memory_processed ~= true)
         or metadata.processing_error
         or not self.preprocess_notice_paths
@@ -475,7 +479,7 @@ function Reader:_memory_processor(image)
         candidate.width = metadata and metadata.width or candidate.width
         candidate.height = metadata and metadata.height or candidate.height
         local profile = self:_processing_profile(candidate)
-        if not profile then return buffer, { memory_processed = true } end
+        if not profile then return buffer, {} end
         return self.page_processor.process_buffer(buffer, profile, {
             gray_enhance = self.gray_enhance,
             auto_crop = AutoCrop,
@@ -825,6 +829,7 @@ function Reader:_viewport(segment)
         if type(buffer.viewport) ~= "function" then return nil, "missing viewport support" end
         return buffer:viewport(box.x, box.y, box.w, box.h)
     end
+    if self.panel_entry and self.panel_entry.whole_page then return buffer end
     if self.fit_mode == "width" then
         local _content_w, content_h = self.shell:get_content_size()
         content_h = math.max(1, math.floor(tonumber(content_h) or height))
@@ -887,8 +892,9 @@ function Reader:_display_segment(segment, checkpoint, page_change)
     if not viewport then return false, viewport_error end
     page_change = copy_table(page_change)
     page_change.reader_generation = self.generation
-    page_change.display_scale = self.quadrant_zoom and not self.panel_entry
-        and not self.panel_session and 0 or 1
+    local fit_whole_page = self.panel_entry and self.panel_entry.whole_page
+    page_change.display_scale = (fit_whole_page or (self.quadrant_zoom and not self.panel_entry
+        and not self.panel_session)) and 0 or 1
     local background = self.reader_settings.display_background or "white"
     page_change.background = background == "auto"
         and (self.page_metadata and self.page_metadata.background or Webtoon.background(viewport))
@@ -1388,6 +1394,10 @@ function Reader:request_page(index, wanted_segment)
         self.panel_session, self.panel_entry, self.panel_resume, self.panel_restore = nil, nil, nil, nil
         session:close()
     end
+    if self.panel_entry and self.panel_entry.whole_page then
+        self.panel_entry.whole_page = nil
+        self.panel_resume = target < self.position.index and "last" or "first"
+    end
     if self.position and target ~= self.position.index then
         self:_reset_quadrant_zoom("page_request")
     end
@@ -1740,7 +1750,8 @@ function Reader:onTap(_, gesture)
         if x>=width/3 and x<=width*2/3 and y>=height/3 and y<=height*2/3 then
             return self:toggle_controls("panel_view")
         end
-        if not self.panel_session or self.panel_session.render_options.view=="free" then return true end
+        if (not self.panel_session and not self.panel_entry.whole_page)
+            or (self.panel_session and self.panel_session.render_options.view=="free") then return true end
         local vertical=self.reader_settings.panel_navigation=="vertical"
         local coordinate,size=vertical and y or x,vertical and height or width
         if coordinate>=size/3 and coordinate<=size*2/3 then return self:toggle_controls("panel_view") end
@@ -1855,6 +1866,7 @@ function Reader:enter_panel_mode(desired)
             pan_y = self.pan_y, current_segments = self.current_segments, serial = self.request_serial,
             viewport = self.page_viewport }
     end
+    self.panel_entry.whole_page = nil
     self.current_segments, self.pan_y = { "whole" }, 0
     self.shell:show_status("正在识别分格")
     local width, height = self.shell:get_content_size()
@@ -1891,18 +1903,7 @@ function Reader:enter_panel_mode(desired)
         end, false),
         on_boundary = self:_callback("cross dynamic panel page", function(delta)
             if not active() then return false end
-            local target = self.position.index + delta
-            if target > self:_count() then
-                if self:_wait_for_stream_end() then return true end
-                return self:_ask_next_chapter()
-            end
-            if target < 1 then return true end
-            -- Detach the borrowed panel before its owner releases it.
-            if not self:_display_segment("whole", false) then return false end
-            self.panel_session = nil
-            session:close()
-            self.panel_resume = delta > 0 and "first" or "last"
-            return self:request_page(target, "whole")
+            return self:_request_panel_page(delta)
         end, false),
         on_fallback = self:_callback("fallback dynamic panel", function(reason)
             if active() then return self:_panel_fallback(reason) end
@@ -1910,6 +1911,26 @@ function Reader:enter_panel_mode(desired)
     })
     if started == false and self.panel_session == session then self:_panel_fallback() end
     return true
+end
+
+function Reader:_request_panel_page(delta)
+    if self.pending_request then return true end
+    local target = self.position.index + delta
+    if target > self:_count() then
+        if self:_wait_for_stream_end() then return true end
+        return self:_ask_next_chapter()
+    end
+    if target < 1 then return true end
+    local session = self.panel_session
+    if session then
+        -- Detach the borrowed panel before its owner releases it.
+        if not self:_display_segment("whole", false) then return false end
+        self.panel_session = nil
+        session:close()
+    end
+    if self.panel_entry then self.panel_entry.whole_page = nil end
+    self.panel_resume = delta > 0 and "first" or "last"
+    return self:request_page(target, "whole")
 end
 
 function Reader:_move_panel(delta)
@@ -1924,6 +1945,8 @@ function Reader:_move_panel(delta)
             self:_show_panel(current.buffer, current.panel, current.index, current.count)
         end
         session:move(delta)
+    elseif self.panel_entry and self.panel_entry.whole_page then
+        return self:_request_panel_page(delta)
     end
     -- Busy detection/rendering and in-flight physical transitions consume input.
     return true
@@ -1935,12 +1958,15 @@ function Reader:exit_panel_mode()
     local session = self.panel_session
     local retained = entry.serial == self.request_serial and not self.pending_request
     local segments, pan_y = self.current_segments, self.pan_y
+    local whole_page = entry.whole_page
+    entry.whole_page = nil
     self.current_segments = retained and entry.current_segments or { "whole" }
     self.pan_y = retained and entry.pan_y or 0
     if entry.displayed or not retained or self.position.segment ~= entry.segment
         or self.page_viewport ~= entry.viewport then
         if not self:_display_segment(retained and entry.segment or "whole", false) then
             self.current_segments, self.pan_y = segments, pan_y
+            entry.whole_page = whole_page
             return false
         end
     end
@@ -1955,7 +1981,29 @@ function Reader:exit_panel_mode()
 end
 
 function Reader:_panel_fallback(reason)
-    if not self:exit_panel_mode() then return false end
+    if self.panel_entry and (reason == "no_panels" or reason == "too_many_panels") then
+        local entry, session = self.panel_entry, self.panel_session
+        local whole_page = entry.whole_page
+        entry.whole_page = true
+        if not self:_display_segment("whole", false) then
+            entry.whole_page = whole_page
+            if session and not session:is_active() then
+                -- No panel allocation is visible. Stop the rejected transition
+                -- before PanelSession closes itself and invalidates its fields.
+                if entry.serial == self.request_serial then
+                    self.current_segments, self.pan_y = entry.current_segments, entry.pan_y
+                else
+                    -- Preserve the ordinary whole-page view already on screen.
+                    self.current_segments = { "whole" }
+                end
+                self.panel_session, self.panel_entry, self.panel_resume, self.panel_pan = nil, nil, nil, nil
+                session:close()
+            end
+            return false
+        end
+        self.panel_session, self.panel_resume, self.panel_pan = nil, nil, nil
+        if session then session:close() end
+    elseif not self:exit_panel_mode() then return false end
     if self.shell then self.shell:show_status(panel_failure_messages[reason]
         or panel_failure_messages.panel_source_unavailable) end
     return true
@@ -1985,8 +2033,8 @@ function Reader:onSwipe(_, gesture)
     local direction = gesture and gesture.direction
     if self.panel_entry then
         local session=self.panel_session
-        if not session then return true end
-        if session.render_options.view=="free" then
+        if not session and not self.panel_entry.whole_page then return true end
+        if session and session.render_options.view=="free" then
             self.panel_pan=nil
             if gesture.pos and gesture.end_pos then
                 session:pan(gesture.end_pos.x-gesture.pos.x,gesture.end_pos.y-gesture.pos.y)
@@ -2055,8 +2103,8 @@ function Reader:set_panel_option(key,value,make_default)
     if session and session:is_active() then
         local current=session:set_direction(self:_panel_direction())
         if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
-        if key=="panel_zoom_enabled" and value==false then self:exit_panel_mode() end
     end
+    if key=="panel_zoom_enabled" and value==false then self:exit_panel_mode() end
     return true
 end
 
@@ -2103,11 +2151,11 @@ end
 function Reader:_prepare_fit_mode(mode)
     if mode ~= "webtoon" then return true end
     if mode == "webtoon" and self.shell and self.shell.legacy then return false end
-    if mode == "webtoon" and self.panel_session then
+    if mode == "webtoon" and (self.panel_entry or self.panel_session) then
         if self.page_buffer and not self:_display_segment("whole", false) then return false end
         local panel = self.panel_session
         self.panel_session, self.panel_entry, self.panel_resume, self.panel_restore = nil, nil, nil, nil
-        panel:close()
+        if panel then panel:close() end
     end
     self:_reset_quadrant_zoom("webtoon")
     return true
@@ -2262,6 +2310,10 @@ function Reader:reload_settings(values)
         for k,v in pairs(self.settings:get_panel_overrides(self.panel_book_key)) do next_values[k]=v end
     end
     if not self:_prepare_fit_mode(next_values.fit_mode) then return false end
+    if self.panel_entry and (next_values.panel_zoom_enabled ~= true
+        or next_values.image_engine == "memory") then
+        if not self:exit_panel_mode() then return false end
+    end
     local direction_only = self.panel_session and previous.direction ~= next_values.direction
         and same_settings(previous, next_values, "direction")
     local filter_changed = previous.gray_enhance_enabled ~= next_values.gray_enhance_enabled

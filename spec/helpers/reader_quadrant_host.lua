@@ -37,6 +37,15 @@ return function(use_image_widget, options)
             value = setmetatable(value or {}, { __index = self }); value.__index = value
             return value
         end
+        function c:getSize()
+            if self.dimen then return self.dimen end
+            if self.text then return {w=math.min(#self.text*10,self.max_width or 600),h=20} end
+            local child=self[1] and self[1]:getSize() or {w=0,h=0}
+            return {w=child.w+2*(self.padding or 0),h=child.h+2*(self.padding or 0)}
+        end
+        function c:free()
+            for _,child in ipairs(self) do if child.free then child:free() end end
+        end
         return c
     end
     local screen = { getWidth = function() return 600 end, getHeight = function() return 800 end,

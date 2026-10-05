@@ -991,13 +991,23 @@ do
                 render=function() error("raw native allocation failure") end,
                 close=function(self) self.closed=true end})
         end
-        expect(#events==2 and events[1][1]=="status" and events[2][1]=="status"
-            and events[2][2]==case[2], case[1].." must show only its safe localized status")
-        expect(r.panel_session==nil and r.panel_entry==nil and r.page_buffer==original
+        local missed=case[1]=="no_panels" or case[1]=="too_many_panels"
+        expect(events[1][1]=="status" and events[#events][1]=="status"
+            and events[#events][2]==case[2] and #events==(missed and 3 or 2),
+            case[1].." must show its safe localized status and only restore a page when needed")
+        if missed then
+            expect(r.panel_session==nil and r.panel_entry~=nil and r.panel_entry.whole_page
+                and r.panel_entry.segment=="right" and r.panel_entry.pan_y==137
+                and r.page_buffer==original and not original.freed and shown==original
+                and r.position.index==2 and r.position.segment=="whole" and r.pan_y==0
+                and #r.current_segments==1 and #saved==saves,
+                case[1].." retains the exit snapshot while showing this page whole without saving new progress")
+        else expect(r.panel_session==nil and r.panel_entry==nil and r.page_buffer==original
             and not original.freed and shown==original and r.page_viewport==viewport
             and r.position.index==2 and r.position.segment=="right" and r.pan_y==137
             and r.current_segments==segments and #saved==saves,
             case[1].." must preserve the exact page, viewport, position and persisted progress")
+        end
         r:next_page()
         expect(#requests==2 and requests[2].image==images[3], case[1].." must leave ordinary next_page usable")
         requests[2].callbacks.on_ready("/cache/003.webp",false,{width=1600,height=1000,format="webp"})

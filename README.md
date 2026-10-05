@@ -1,12 +1,18 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.13，2026-10-03 OPDS 章节点击修复包**。修复点击章节后被菜单返回动作取消的问题，保留“插件售价50元”提示。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.14，2026-10-05 阅读状态与提示刷新修复包**。关闭图像增强后不再误报处理成功；未识别分格的页完整显示，下一页继续检测；提示只刷新左上角文字区域。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.13-20261003-opds-chapter-open.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.14-20261005-reader-state-refresh.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+
+## 本次修复：阅读状态与提示刷新
+
+- 去灰和亮度/对比度关闭后，旧预处理回调和单纯自动裁边不会显示增强成功；所有增强与裁边关闭时直接使用原图。
+- 智能分格遇到无法识别的页时完整适屏显示本页，下一页自动续检；连续失败页、反向导航、长页、拆分页以及主动退出均有回归检查。关闭分格或切换内存引擎后恢复普通翻页。
+- 左上角提示的出现、替换和消失只请求文字矩形刷新，不重建图片，也不关闭正在显示的气泡。正常翻页和显式整页刷新保留。真实墨水屏效果仍需设备验收。
 
 ## 本次重构：智能分格阅读
 

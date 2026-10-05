@@ -143,6 +143,20 @@ local function production_widget(shell, dependencies)
         }
     end
 
+    function ReaderWidget:_status_content(text)
+        if not text or text == "" then return nil end
+        return dependencies.FrameContainer:new{
+            padding = 4, margin = 0, bordersize = 0,
+            background = dependencies.Blitbuffer.COLOR_WHITE,
+            allow_mirroring = false,
+            dependencies.TextWidget:new{
+                text = text,
+                face = dependencies.Font:getFace("smallinfofont") or message_face,
+                max_width = math.max(1, math.min(shell.screen_w, 260) - 8),
+            },
+        }
+    end
+
     function ReaderWidget:_page_content(model)
         local width, height = shell:get_content_size()
         local image = dependencies.ImageWidget:new{
@@ -184,8 +198,10 @@ local function production_widget(shell, dependencies)
         local previous = self[1]
         local root = dependencies.OverlapGroup:new{
             dimen = dependencies.Geom:new{ w = shell.screen_w, h = shell.screen_h },
+            allow_mirroring = false,
             content,
         }
+        local status_index, status_widget
         if model.kind == "page" then
             if model.show_progress ~= false then
                 local progress = math.max(0, math.min(1, tonumber(model.progress) or 0))
@@ -207,25 +223,9 @@ local function production_widget(shell, dependencies)
                     filled,
                 }
             end
-            if model.status_text and model.status_text ~= "" then
-                local face = dependencies.Font:getFace("smallinfofont")
-                    or dependencies.Font:getFace("cfont")
-                root[#root + 1] = dependencies.FrameContainer:new{
-                    dimen = dependencies.Geom:new{
-                        w = math.min(shell.screen_w, 260), h = 34,
-                    },
-                    padding = 4,
-                    margin = 0,
-                    bordersize = 0,
-                    background = dependencies.Blitbuffer.COLOR_WHITE,
-                    overlap_align = "left",
-                    valign = "bottom",
-                    align = "left",
-                    dependencies.TextWidget:new{
-                        text = tostring(model.status_text), face = face,
-                    },
-                }
-            end
+            status_widget = self:_status_content(model.status_text)
+            status_index = #root + 1
+            if status_widget then root[status_index] = status_widget end
             local bubble = shell.bubble_zoom
             if bubble then
                 local rect = bubble.rect
@@ -291,6 +291,7 @@ local function production_widget(shell, dependencies)
             }
         end
         self[1] = root
+        self.status_index, self.status_widget = status_index, status_widget
         shell.page_image = page_image
         if previous and previous.free then previous:free() end
     end
@@ -459,6 +460,35 @@ local function production_widget(shell, dependencies)
     function ReaderWidget:set_model(model)
         self:_rebuild()
         dependencies.UIManager:setDirty(self, model and model.refresh_type or "ui")
+    end
+
+    function ReaderWidget:set_status(text)
+        if not self.status_index then return false end
+        local previous, replacement = self.status_widget, self:_status_content(text)
+        local old_size = previous and previous:getSize() or {w = 0, h = 0}
+        local new_size = replacement and replacement:getSize() or {w = 0, h = 0}
+        local region = dependencies.Geom:new{
+            x = self.dimen.x or 0, y = self.dimen.y or 0,
+            w = math.min(shell.screen_w, math.max(old_size.w, new_size.w)),
+            h = math.min(shell.screen_h, math.max(old_size.h, new_size.h)),
+        }
+        local function replace(widget)
+            if self.status_widget then table.remove(self[1], self.status_index) end
+            if widget then table.insert(self[1], self.status_index, widget) end
+            self.status_widget = widget
+        end
+        replace(replacement)
+        if region.w > 0 and region.h > 0 then
+            -- UI refreshes do not inherit a page's flashing/full refresh mode.
+            local ok, err = pcall(dependencies.UIManager.setDirty, dependencies.UIManager, self, "ui", region)
+            if not ok then
+                replace(previous)
+                if replacement then replacement:free() end
+                error(err, 0)
+            end
+        end
+        if previous then previous:free() end
+        return true
     end
 
     function ReaderWidget:onBack()
@@ -672,11 +702,14 @@ function ReaderShell:_publish(model)
     local bubble = self.bubble_zoom
     self.bubble_zoom = nil
     local previous = self.current_model
+    local previous_token = self.status_token
+    if model ~= previous then self.status_token = self.status_token + 1 end
     self.current_model = model
     if self.widget and type(self.widget.set_model) == "function" then
         local ok, err = pcall(self.widget.set_model, self.widget, model)
         if not ok then
             self.current_model, self.bubble_zoom = previous, bubble
+            self.status_token = previous_token
             error(err, 0)
         end
     end
@@ -857,20 +890,35 @@ function ReaderShell:show_status(message, duration)
     if self.closed or not self.current_model or self.current_model.kind ~= "page" then
         return false
     end
+    local model, previous_token = self.current_model, self.status_token
+    local previous, text = model.status_text, tostring(message or "")
+    if text == "" then text = nil end
     self.status_token = self.status_token + 1
     local token = self.status_token
-    self.current_model.status_text = tostring(message or "")
-    self:_publish(self.current_model)
+    if text ~= previous then
+        model.status_text = text
+        local ok, result = true, true
+        if self.widget then
+            if self.widget.set_status then
+                ok, result = pcall(self.widget.set_status, self.widget, text)
+            elseif self.widget.set_model then
+                ok, result = pcall(self.widget.set_model, self.widget, model)
+            end
+        end
+        if not ok or result == false then
+            model.status_text, self.status_token = previous, previous_token
+            return false
+        end
+    end
     local seconds = tonumber(duration)
     if seconds and seconds > 0 and self.scheduler
         and type(self.scheduler.scheduleIn) == "function" then
         pcall(self.scheduler.scheduleIn, self.scheduler, seconds, function()
             if self.closed or token ~= self.status_token
-                or not self.current_model or self.current_model.kind ~= "page" then
+                or self.current_model ~= model or model.kind ~= "page" then
                 return
             end
-            self.current_model.status_text = nil
-            self:_publish(self.current_model)
+            self:show_status("")
         end)
     end
     return true
