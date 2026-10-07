@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.14
+WebDAV Manga for KOReader - version 0.4.15
 
 The 2026-10-02 hold-zoom build independently extends the existing quadrant
 viewport with native two-finger hold/release handling and a contact-lifetime
@@ -231,3 +231,12 @@ is heuristic; joined, slanted, borderless or nested frames may remain a full
 page. Desktop checks do not establish Kindle touch, timing or e-ink behavior.
 Meguru revision 217a52371c02db19cf2a19ceb0b5ccd32b358c4e (AGPL-3.0-or-later)
 was consulted for interaction behavior only; no source from it was copied.
+
+Bookshelf cover browsing (2026-10-07) uses the existing directory, image and
+cover-grid components with an independent generated cache. Defaults are a
+200 MB maximum, a 150 MB cleanup trigger, 100 MB retention and a ten-minute
+check interval. Directory and selection indexes, compact registration data,
+PNG thumbnails and in-flight files share the bookshelf quota. Only current
+visible cards load; originals are never deleted. Discovery prefers the
+natural first direct image, then scans one child level without recursion.
+Native touch layout, PNG encoding and e-ink display acceptance remain pending.

@@ -1,6 +1,6 @@
 # 漫画书架封面浏览 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在漫画书架增加列表/封面切换，并在 Kindle 本地独立保存和管理目录、选图索引与封面缩略图。
 
@@ -42,11 +42,11 @@
 - Produces: Cache:new{unified_quota=true, store=BookshelfStore, ...}；total_size/cleanup_browse/publish/clear统一计目录、选图、缩略图及JSON登记表。
 - Produces: Settings:get_bookshelf_cache()/set_bookshelf_cache(values), get_bookshelf_view()/set_bookshelf_view("list"|"covers")。
 
-- [ ] Step 1: 新规格断言默认200/150/100/10、非法关系拒绝、模式记忆、全类型LRU、保护项、JSON重启和损坏恢复、索引字节计入上限、发布失败不留part。
-- [ ] Step 2: 运行 `python scripts/run_lua_specs.py spec/bookshelf_cache_spec.lua`；Expected: 新接口缺失导致RED。
-- [ ] Step 3: 实现紧凑JSON存储和Cache opt-in统一配额，复用现有路径安全/保护/LRU；发布之前计算候选索引实际编码长度。
-- [ ] Step 4: 运行新规格和旧cache/cover_cache/stream_cache规格；Expected: 全部GREEN；全套测试输出存入任务工作区。
-- [ ] Step 5: 提交 `feat: add isolated bookshelf cache policy`，记录证据。
+- [x] Step 1: 新规格断言默认200/150/100/10、非法关系拒绝、模式记忆、全类型LRU、保护项、JSON重启和损坏恢复、索引字节计入上限、发布失败不留part。
+- [x] Step 2: 运行 `python scripts/run_lua_specs.py spec/bookshelf_cache_spec.lua`；Expected: 新接口缺失导致RED。
+- [x] Step 3: 实现紧凑JSON存储和Cache opt-in统一配额，复用现有路径安全/保护/LRU；发布之前计算候选索引实际编码长度。
+- [x] Step 4: 运行新规格和旧cache/cover_cache/stream_cache规格；Expected: 全部GREEN；全套测试输出存入任务工作区。
+- [x] Step 5: 提交 `feat: add isolated bookshelf cache policy`，记录证据。
 
 ### Task 2: 封面发现、选图索引与缩略图
 
@@ -62,11 +62,11 @@
 - Produces: BookshelfLoader:new{cache, loader, renderer?, processor?, identity}; cover_key(image), request_cover(generation,image,callbacks), cancel_cover_generation(generation), cancel_all()；PNG最长边受固定目标限制，临时源图生成后立即移除。
 - Produces: CoverGrid支持可选loader:cover_key(image)和可见封面保护；旧实例接口不变。
 
-- [ ] Step 1: 新规格断言001/2/10、直属优先、首子为空继续、孙图不查、错误不永久阴性、选图重启/隔离/刷新、缩略图命中、不增强、源文件不删除、失败/取消/迟到任务释放资源。
-- [ ] Step 2: 运行两组新规格；Expected: RED。
-- [ ] Step 3: 实现上述小模块，沿用PageProcessor.process无LUT/crop生成PNG；保存etag/modified可用信息并纳入封面键。
-- [ ] Step 4: 运行新规格及cover、cover_grid、loader、目录相关规格，随后全套；Expected: GREEN。
-- [ ] Step 5: 提交 `feat: resolve and cache bookshelf thumbnails`，记录证据。
+- [x] Step 1: 新规格断言001/2/10、直属优先、首子为空继续、孙图不查、错误不永久阴性、选图重启/隔离/刷新、缩略图命中、不增强、源文件不删除、失败/取消/迟到任务释放资源。
+- [x] Step 2: 运行两组新规格；Expected: RED。
+- [x] Step 3: 实现上述小模块，沿用PageProcessor.process无LUT/crop生成PNG；保存etag/modified可用信息并纳入封面键。
+- [x] Step 4: 运行新规格及cover、cover_grid、loader、目录相关规格，随后全套；Expected: GREEN。
+- [x] Step 5: 提交 `feat: resolve and cache bookshelf thumbnails`，记录证据。
 
 ### Task 3: 书架视图、工具栏与缓存管理
 
@@ -83,11 +83,11 @@
 - Produces: UiBookshelfCache:new{settings,cache,ui?,on_changed?}:show()；容量/触发/保留/间隔、占用/封面数/索引、手动按规则清理和只清空书架缓存。
 - Produces: main初始化专用根/实例/定时任务，连接切换和退出完整取消，现有缓存菜单新增入口。
 
-- [ ] Step 1: 新规格断言默认列表、切换记忆、同目录同项目、点进入长按动作、占位可点、原管理入口、顶部独立按钮、离线命中、缓存界面校验/保护、连接切换和退出取消。
-- [ ] Step 2: 运行新规格；Expected: RED。
-- [ ] Step 3: 按现有UI/生命周期实现最小接入；保持Reader使用旧DirectoryStore，书架浏览使用新DirectoryStore。
-- [ ] Step 4: 运行新规格及browser、导航、生命周期、菜单原生规格，再运行全套与Lua语法；Expected: GREEN。
-- [ ] Step 5: 提交 `feat: add cover browsing and bookshelf cache controls`，记录证据。
+- [x] Step 1: 新规格断言默认列表、切换记忆、同目录同项目、点进入长按动作、占位可点、原管理入口、顶部独立按钮、离线命中、缓存界面校验/保护、连接切换和退出取消。
+- [x] Step 2: 运行新规格；Expected: RED。
+- [x] Step 3: 按现有UI/生命周期实现最小接入；保持Reader使用旧DirectoryStore，书架浏览使用新DirectoryStore。
+- [x] Step 4: 运行新规格及browser、导航、生命周期、菜单原生规格，再运行全套与Lua语法；Expected: GREEN。
+- [x] Step 5: 提交 `feat: add cover browsing and bookshelf cache controls`，记录证据。
 
 ### Task 4: 审查、说明、安装包与交付
 
