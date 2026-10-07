@@ -694,7 +694,8 @@ end
 function CoverGrid:_cache_path(image)
     if type(image) ~= "table" or type(image.path) ~= "string" then return nil end
     if not self.cache or type(self.cache.key_for) ~= "function" or type(self.cache.lookup) ~= "function" then return nil end
-    local key = self.cache:key_for(self.loader.identity, image.path)
+    local key = self.loader.cover_key and self.loader:cover_key(image)
+        or self.cache:key_for(self.loader.identity, image.path)
     return self.cache:lookup(key)
 end
 
@@ -792,6 +793,7 @@ end
 
 function CoverGrid:_request_download(generation, item, image, on_done)
     if not self:_is_current(generation) then return end
+    if self.loader.protect_cover then self.loader:protect_cover(generation, image) end
     local finished = false
     local function done()
         if finished then return end

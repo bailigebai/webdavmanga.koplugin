@@ -13,6 +13,7 @@ local function copy_image(image, root)
     if type(image) ~= "table" or not ImageFormats.is_supported(image.name) then return nil end
     local copied = copy_resource(image, root); if not copied then return nil end; copied.is_file = nil
     if image.size ~= nil then copied.size = tonumber(image.size) end; if image.etag ~= nil then copied.etag = tostring(image.etag) end
+    if image.modified ~= nil then copied.modified = tostring(image.modified) end
     for _, key in ipairs({ "width", "height", "mupdf_page", "mupdf_source_size", "mobi_source_size", "mobi_record",
         "mobi_offset", "mobi_size", "archive_source_size", "archive_local_offset",
         "archive_method", "archive_flags", "archive_crc32", "archive_compressed_size",
@@ -55,6 +56,12 @@ function Cover:new(options)
     options = options or {}; local o = setmetatable({}, self)
     o.library = assert(options.library, "library is required")
     o.directory_store = assert(options.directory_store, "directory store is required")
+    o.search_all_children = options.search_all_children == true
+    o.scheduler = options.scheduler
+    if o.search_all_children and not o.scheduler then
+        local ok, manager = pcall(require, "ui/uimanager")
+        if ok then o.scheduler = manager end
+    end
     o.error_reporter = options.error_reporter or ErrorReporter:new{ logger = options.logger }
     o.generation, o.active = 0, nil; return o
 end
@@ -80,6 +87,7 @@ end
 function Cover:_cancel_active()
     local active = self.active; self.active = nil; self.generation = self.generation + 1
     if not active then return end
+    if active.directory and active.directory.close then active.directory:close(); active.directory=nil end
     local handles = active.handles or { active.handle }
     local canceled = {}
     for _, handle in ipairs(handles) do
@@ -95,6 +103,7 @@ function Cover:_notify(callbacks, key, value)
 end
 function Cover:_finish(active, callbacks, key, value)
     if self.active ~= active then return end; self.active = nil
+    if active.directory and active.directory.close then active.directory:close(); active.directory=nil end
     if key == "on_ready" then
         local image = copy_image(value, active.record.root); if not image then return self:_notify(callbacks, "on_error", Errors.invalid_path()) end
         local stored = self.error_reporter:guard("save_cache_index", function() return self.library:set_cover(active.connection, active.record.manga.path, image) end, false, nil, { silent = true })
@@ -123,7 +132,10 @@ function Cover:_start(connection, record, callbacks, force)
     if not force and record.hint_image then finish_image(record.hint_image); return noop_handle() end
     local store = self.directory_store
     local function load(path, ready, failed)
-        return store:load(path, { refresh = force, on_ready = ready, on_error = failed })
+        return store:load(path, { refresh = force, on_ready = function(directory)
+            if self.active ~= active then if directory.close then directory:close() end; return end
+            ready(directory)
+        end, on_error = function(err) if self.active == active then failed(err) end end })
     end
     local function chapter_image(chapter_path)
         track(load(chapter_path, function(directory)
@@ -132,6 +144,32 @@ function Cover:_start(connection, record, callbacks, force)
             if directory.close then directory:close() end
             if image then finish_image(image) else finish_none() end
         end, finish_error))
+    end
+    local function search_children(folders)
+        local position, last_error = 0, nil
+        local step
+        local function advance()
+            if self.active ~= active then return end
+            if self.scheduler and self.scheduler.scheduleIn then self.scheduler:scheduleIn(0, step)
+            else step() end
+        end
+        step = function()
+            if self.active ~= active then return end
+            position = position + 1
+            local chapter = position <= folders:count() and folders:get(position)
+            if not chapter then
+                if last_error then finish_error(last_error) else finish_none() end
+                return
+            end
+            track(load(chapter.path, function(directory)
+                if self.active ~= active then if directory.close then directory:close() end; return end
+                local images = directory_index(directory, "images")
+                local image = images and images:get(1)
+                if directory.close then directory:close() end
+                if image then finish_image(image) else advance() end
+            end, function(err) last_error = err; advance() end))
+        end
+        step()
     end
     track(load(record.manga.path, function(directory)
         local hint = Cover.hint_for_directory{
@@ -144,11 +182,18 @@ function Cover:_start(connection, record, callbacks, force)
             if image then finish_image(image) else finish_none() end
         else
             local chapter = record.hint_chapter or hint.chapter
-            if directory.close then directory:close() end
-            if chapter then chapter_image(chapter.path) else finish_none() end
+            local children
+            if self.search_all_children then
+                children = directory_index(directory, "folders")
+            end
+            if children then active.directory=directory;search_children(children)
+            else
+                if directory.close then directory:close() end
+                if chapter then chapter_image(chapter.path) else finish_none() end
+            end
         end
     end, finish_error))
-    return { cancel = function() self:_cancel_active() end }
+    return { cancel = function() if self.active == active then self:_cancel_active() end end }
 end
 function Cover:resolve(connection, record, callbacks)
     self:_cancel_active()
