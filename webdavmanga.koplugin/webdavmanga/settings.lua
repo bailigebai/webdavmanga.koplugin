@@ -864,6 +864,38 @@ function Settings:set_reader(values)
     return true
 end
 
+local BOOKSHELF_DEFAULTS = {total_mb=200, trigger_mb=150, retain_mb=100, interval_minutes=10}
+local function valid_bookshelf_policy(p)
+    return is_integer_in_range(p.total_mb, 1, 32768)
+        and is_integer_in_range(p.trigger_mb, 1, 32768)
+        and is_integer_in_range(p.retain_mb, 0, 32768)
+        and is_integer_in_range(p.interval_minutes, 1, 1440)
+        and p.retain_mb < p.trigger_mb and p.trigger_mb <= p.total_mb
+end
+function Settings:get_bookshelf_cache()
+    local saved = self.store:readSetting("bookshelf_cache", {})
+    local policy = copy_table(BOOKSHELF_DEFAULTS)
+    if type(saved) == "table" then
+        for key in pairs(policy) do if saved[key] ~= nil then policy[key] = tonumber(saved[key]) end end
+    end
+    return valid_bookshelf_policy(policy) and policy or copy_table(BOOKSHELF_DEFAULTS)
+end
+function Settings:set_bookshelf_cache(values)
+    local policy = self:get_bookshelf_cache()
+    for key in pairs(policy) do if values[key] ~= nil then policy[key] = tonumber(values[key]) end end
+    if not valid_bookshelf_policy(policy) then return nil, "invalid_bookshelf_policy" end
+    self.store:saveSetting("bookshelf_cache", policy)
+    return true
+end
+function Settings:get_bookshelf_view()
+    return self.store:readSetting("bookshelf_view") == "covers" and "covers" or "list"
+end
+function Settings:set_bookshelf_view(mode)
+    if mode ~= "list" and mode ~= "covers" then return nil, "invalid_bookshelf_view" end
+    self.store:saveSetting("bookshelf_view", mode)
+    return true
+end
+
 function Settings:get_browse_cache()
     local saved = self.store:readSetting("browse_cache", {})
     if type(saved) ~= "table" then saved = {} end

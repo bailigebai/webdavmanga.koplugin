@@ -167,6 +167,7 @@ function Cache:new(options)
         object.cover_limit_bytes = object.limit_bytes
     end
     object.store = assert(options.store, "cache index store is required")
+    object.unified_quota = options.unified_quota == true
     object.fs = options.fs or default_filesystem()
     object.md5 = options.md5 or default_md5
     object.cache_key_validator = options.cache_key_validator or production_cache_key
@@ -213,7 +214,7 @@ function Cache:_flush()
     if self.browse_last_cleanup_at ~= nil then
         self.store:saveSetting("browse_last_cleanup_at", self.browse_last_cleanup_at)
     end
-    if self.store.flush then self.store:flush() end
+    if self.store.flush then return self.store:flush() end
 end
 
 function Cache:key_for(identity, remote_path, kind)
@@ -272,9 +273,13 @@ function Cache:unprotect(key)
     return true
 end
 
-function Cache:total_size()
+function Cache:total_size(entries)
     local total = 0
-    for _, record in pairs(self.entries) do total = total + (tonumber(record.size) or 0) end
+    entries = entries or self.entries
+    for _, record in pairs(entries) do total = total + (tonumber(record.size) or 0) end
+    if self.unified_quota and self.store.cache_index_size then
+        total = total + self.store:cache_index_size(entries)
+    end
     return total
 end
 
@@ -289,6 +294,7 @@ function Cache:content_size()
 end
 
 function Cache:browse_size()
+    if self.unified_quota then return self:total_size() end
     return self:kind_size("page") + self:kind_size("manifest")
 end
 
@@ -549,7 +555,8 @@ function Cache:_evict_to(target_bytes, protected_keys)
 
     local freed, changed = 0, false
     for _, candidate in ipairs(candidates) do
-        if freed >= bytes_to_free then break end
+        if self.unified_quota and self:total_size() <= target then break end
+        if not self.unified_quota and freed >= bytes_to_free then break end
         local record = candidate.record
         if is_direct_descendant(self.root, record.path) then
             local removed = self.fs.remove(record.path)
@@ -667,8 +674,8 @@ function Cache:cleanup_browse(force)
     if self:browse_size() <= self.browse_trigger_bytes then
         return 0, false, "below_trigger"
     end
-    local freed, changed = self:_evict_noncover_to(self.browse_retain_bytes,
-        self.protected_keys)
+    local evict = self.unified_quota and self._evict_to or self._evict_noncover_to
+    local freed, changed = evict(self, self.browse_retain_bytes, self.protected_keys)
     if changed then self:_flush() end
     return freed, changed, changed and "cleaned" or "nothing_to_evict"
 end
@@ -734,7 +741,7 @@ function Cache:publish(record, part_path)
             return nil, "unvalidated"
         end
     end
-    local quota = kind == "cover" and self.cover_limit_bytes
+    local quota = self.unified_quota and self.limit_bytes or kind == "cover" and self.cover_limit_bytes
         or (kind == "document" and self:_document_limit_bytes() or self.limit_bytes)
     if actual_size > quota then
         self.fs.remove(part_path)
@@ -750,7 +757,34 @@ function Cache:publish(record, part_path)
         and previous_size or 0
     local required = math.max(0, actual_size - previous_quota_size)
     local _freed, evicted
-    if kind == "cover" then
+    local published_at = self.clock()
+    if not is_finite_number(published_at) then published_at = 0 end
+    local candidate = {
+        key = record.key, kind = kind, remote_path = tostring(record.remote_path or ""),
+        identity = type(record.identity) == "string" and record.identity or nil,
+        path = final_path, size = actual_size, extension = extension,
+        validated = validated, extension_mismatch = record.extension_mismatch == true,
+        etag = record.etag, modified = record.modified,
+        format = record.format, width = record.width, height = record.height,
+        crop = record.crop, crop_checked = record.crop_checked,
+        crop_reason = record.crop_reason, atime = published_at,
+    }
+    local function projected_size()
+        local entries = {}; for k,v in pairs(self.entries) do entries[k] = v end
+        entries[record.key] = candidate
+        local size = self:total_size(entries)
+        -- Atomic registry writes temporarily coexist with the previous file.
+        if self.store.cache_index_size then size = size + self.store:cache_index_size(self.entries) end
+        return size
+    end
+    if self.unified_quota then
+        while projected_size() > quota do
+            local _, changed = self:_evict_to(math.max(0,
+                self:total_size() - (projected_size() - quota)), protected)
+            evicted = evicted or changed
+            if not changed then break end
+        end
+    elseif kind == "cover" then
         _freed, evicted = self:_evict_kind_to(
             kind, self.cover_limit_bytes - required, protected)
     elseif kind ~= "document" then
@@ -758,7 +792,8 @@ function Cache:publish(record, part_path)
     end
     local quota_size = kind == "cover" and self:kind_size("cover")
         or (kind == "document" and self:kind_size("document") or self:browse_size())
-    if quota_size - previous_quota_size + actual_size > quota then
+    if (self.unified_quota and projected_size() > quota)
+        or (not self.unified_quota and quota_size - previous_quota_size + actual_size > quota) then
         self.fs.remove(part_path)
         if evicted then self:_flush() end
         return nil, "cache_limit"
@@ -776,20 +811,13 @@ function Cache:publish(record, part_path)
             return nil, "replace_remove_failed"
         end
     end
-    local published_at = self.clock()
-    if not is_finite_number(published_at) then published_at = 0 end
-    self.entries[record.key] = {
-        key = record.key, kind = kind, remote_path = tostring(record.remote_path or ""),
-        identity = type(record.identity) == "string" and record.identity or nil,
-        path = final_path, size = actual_size, extension = extension,
-        validated = validated, extension_mismatch = record.extension_mismatch == true,
-        etag = record.etag, modified = record.modified,
-        format = record.format, width = record.width, height = record.height,
-        crop = record.crop, crop_checked = record.crop_checked,
-        crop_reason = record.crop_reason,
-        atime = published_at,
-    }
-    self:_flush()
+    self.entries[record.key] = candidate
+    if self:_flush() == false and self.unified_quota then
+        self.fs.remove(final_path)
+        self.entries[record.key] = nil
+        self:_flush()
+        return nil, "index_write_failed"
+    end
     return final_path
 end
 
