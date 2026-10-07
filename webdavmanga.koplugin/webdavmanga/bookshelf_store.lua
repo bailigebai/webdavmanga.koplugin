@@ -7,7 +7,8 @@ function Store:new(options)
     o.path = assert(options.path)
     o.fs = options.fs or {open=io.open, rename=os.rename, remove=os.remove}
     o.json = options.json or require("json")
-    o.data = {schema_version=3, entries={}}
+    o.data = {schema_version=3, migration_pending=false, entries={}, browse_last_cleanup_at=0}
+    o.fs.remove(o.path..".part")
     local file = o.fs.open(o.path, "rb")
     if file then
         local bytes = file:read(16 * 1024 * 1024 + 1); file:close()
@@ -25,13 +26,15 @@ function Store:readSetting(key, default)
 end
 function Store:saveSetting(key, value) self.data[key] = value end
 
-function Store:cache_index_size(entries)
+function Store:cache_index_size(entries,last_cleanup_at)
     local data = {}; for k,v in pairs(self.data) do data[k] = v end
     data.entries = entries
+    if last_cleanup_at~=nil then data.browse_last_cleanup_at=last_cleanup_at end
     local ok, bytes = pcall(self.json.encode, data)
     if not ok or type(bytes) ~= "string" then return math.huge end
     return #bytes
 end
+function Store:on_disk_size() return tonumber(self.fs.size and self.fs.size(self.path)) or 0 end
 
 function Store:flush()
     local ok, bytes = pcall(self.json.encode, self.data)

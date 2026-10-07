@@ -1,5 +1,6 @@
 local Async = require("webdavmanga.async")
 local Browser = require("webdavmanga.ui_browser")
+local Bookshelf = require("webdavmanga.bookshelf")
 local Cache = require("webdavmanga.cache")
 local Client = require("webdavmanga.client")
 local Cover = require("webdavmanga.cover")
@@ -576,6 +577,16 @@ function WebDavManga:init()
         error_reporter = self.error_reporter,
         render_document_cover = deps.render_document_cover,
     }
+    if self.settings.get_bookshelf_cache then
+        self.bookshelf=deps.bookshelf or Bookshelf:new{
+            root=DataStorage:getDataDir().."/cache/webdavmanga-bookshelf",settings=self.settings,
+            client_factory=create_client,async=deps.async or Async,fs=deps.bookshelf_fs or deps.cache_fs,
+            md5=deps.md5,scheduler=progress_scheduler,render_image=deps.render_image,
+            grid_ui=deps.bookshelf_grid_ui_adapter,settings_ui_adapter=deps.bookshelf_settings_ui_adapter,
+            error_reporter=self.error_reporter,
+            identity_provider=function(connection) return self.cache.md5(connection_identity(connection)) end,
+        }
+    end
     self.diagnostics = deps.diagnostics or Diagnostics:new{
         sample_root = self.path .. "/resources/format_samples",
         samples = deps.diagnostics_samples,
@@ -583,6 +594,7 @@ function WebDavManga:init()
     }
 
     self.settings_ui = deps.settings_ui or UiSettings:new{
+        bookshelf_ui=self.bookshelf and self.bookshelf.settings_ui,
         settings = self.settings,
         open_source_shelf = function() return self:onShowWebDavManga() end,
         license = self.license,
@@ -652,6 +664,7 @@ function WebDavManga:init()
             end)
             cancel("cover", function() self.cover:cancel_all() end)
             cancel("cover grid", function() self.cover_grid:cancel() end)
+            cancel("bookshelf",function() if self.bookshelf then self.bookshelf:change_connection() end end)
             cancel("reader", function() self.reader:force_close("connection_switch") end)
             cancel("offline manager", function() self.offline_manager:cancel_all() end)
             cancel("loader", function() self.loader:cancel_all() end)
@@ -807,6 +820,9 @@ function WebDavManga:init()
         settings_ui = self.settings_ui,
         directory_store = self.directory_store,
         ui = deps.browser_ui_adapter,
+        bookshelf_directory_store=self.bookshelf and self.bookshelf.directory_store,
+        bookshelf_grid=self.bookshelf and self.bookshelf.grid,
+        on_bookshelf_refresh=self.bookshelf and function(path) self.bookshelf:refresh(path) end,
         network_manager = deps.network_manager,
         catalog_store = self.catalog_store,
         progress = self.progress,
@@ -1110,6 +1126,7 @@ function WebDavManga:_teardown(force, source)
     stop("cancel cover grid", function()
         if self.cover_grid then self.cover_grid:cancel() end
     end)
+    stop("stop bookshelf",function() if self.bookshelf then self.bookshelf:stop() end end)
     stop("cancel loader", function()
         if self.loader then self.loader:cancel_all() end
     end)

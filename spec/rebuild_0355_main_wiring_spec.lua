@@ -343,7 +343,22 @@ local root_grid_ui = {
     end,
 }
 root_deps.cover_grid_ui_adapter = root_grid_ui
+local shelf_events={switches=0,stops=0,refreshes=0}
+root_deps.bookshelf={
+    directory_store={load=root_deps.directory_store.load},
+    grid={cancel=function() end,show=function() return true end},
+    settings_ui={show=function() end,close_all=function() end},
+    change_connection=function() shelf_events.switches=shelf_events.switches+1 end,
+    refresh=function() shelf_events.refreshes=shelf_events.refreshes+1 end,
+    stop=function() shelf_events.stops=shelf_events.stops+1 end,
+}
 local root_plugin = Plugin:new{ path = "/plugin", webdavmanga_deps = root_deps }
+expect(root_plugin.browser.bookshelf_grid==root_deps.bookshelf.grid
+    and root_plugin.browser.bookshelf_directory_store~=root_plugin.browser.directory_store
+    and root_plugin.settings_ui.bookshelf_ui==root_deps.bookshelf.settings_ui,
+    "book browsing and cache UI must use the separate bookshelf graph")
+root_plugin.browser.on_bookshelf_refresh("/Books")
+expect(shelf_events.refreshes==1,"main refresh boundary reaches independent shelf")
 local root_library, root_manager = root_plugin.library_ui, root_plugin.offline_manager
 local root_identity = root_library:_offline_identity()
 local root_on_status = root_manager.on_status

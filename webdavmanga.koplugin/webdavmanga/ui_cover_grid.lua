@@ -299,6 +299,9 @@ local function default_ui()
     }
 
     function GridWidget:_new_title_bar()
+        if self.model.on_toggle_view then
+            return require("webdavmanga.bookshelf_toolbar").new(self.model,self.screen_w)
+        end
         return TitleBar:new{
             title = self.model.title,
             subtitle = self.model.subtitle,
@@ -310,6 +313,7 @@ local function default_ui()
     function GridWidget:_footer()
         local count = (self.model.allow_multi_select and 4 or 3)
             + (self.model.on_settings and 1 or 0)
+            + (self.model.on_actions and 1 or 0)
         local button_w = math.floor(self.screen_w / count)
         local buttons = {}
         local function add_button(button)
@@ -341,6 +345,9 @@ local function default_ui()
                     return true
                 end,
             }
+        end
+        if self.model.on_actions then
+            add_button{text="操作",callback=function() pcall(self.model.on_actions);return true end}
         end
         if self.model.allow_multi_select then
             add_button{
@@ -408,6 +415,13 @@ local function default_ui()
         self.cover_w = math.max(1, self.cell_w - 2 * Size.padding.small)
         self.cover_width = self.cover_w
         self.cover_height = self.cover_h
+        if self.model.initial_item_id then
+            for index,item in ipairs(self.model.items) do
+                if item.id==self.model.initial_item_id then
+                    self.page=math.floor((index-1)/self.page_size)+1;break
+                end
+            end
+        end
         self:_rebuild()
     end
 
@@ -650,7 +664,8 @@ function CoverGrid:new(deps)
     object.render_image = deps.render_image
     object.render_document_cover = deps.render_document_cover
     object.scheduler = deps.scheduler or default_scheduler()
-    object.ui = deps.ui or default_ui()
+    object.ui = deps.ui
+    if not object.ui and not deps.defer_ui then object.ui=default_ui() end
     object.error_reporter = deps.error_reporter
     object.sequence = 0
     object.view_sequence = 0
@@ -906,6 +921,7 @@ end
 
 function CoverGrid:show(options)
     options = options or {}
+    if not self.ui then self.ui=default_ui() end
     if self.is_open then self:_close_view() end
     self.leave_sequence = self.leave_sequence + 1
     self.view_sequence = self.view_sequence + 1
@@ -923,14 +939,19 @@ function CoverGrid:show(options)
         if not current.on_hold and type(current.on_action) == "function" then
             current.on_hold = current.on_action
         end
+        if current.on_open then current.on_open=self:_guard(view,"open cover item",current.on_open,false) end
+        if current.on_hold then current.on_hold=self:_guard(view,"manage cover item",current.on_hold,false) end
         self.items_by_id[current.id] = current
         items[#items + 1] = current
     end
     local on_back = options.on_back or function() end
     local on_settings = options.on_settings
+    local first_visible=true
     local model = {
         title = options.title,
         subtitle = options.subtitle,
+        initial_item_id=options.initial_item_id,
+        view_mode=options.view_mode,
         fullscreen = true,
         items = items,
         columns = self.settings:get_reader().grid_columns == 3 and 3 or 5,
@@ -939,7 +960,15 @@ function CoverGrid:show(options)
         multi_select = false,
         selected_ids = {},
         ui = self.ui,
-        on_visible = self:_guard(view, "load visible covers", function(ids) return self:_visible(view, ids) end, false),
+        on_visible = self:_guard(view, "load visible covers", function(ids)
+            local anchor=ids and ids[1]
+            if first_visible and options.initial_item_id then
+                for _,id in ipairs(ids or {}) do if id==options.initial_item_id then anchor=id;break end end
+            end
+            first_visible=false
+            if anchor and options.on_anchor then options.on_anchor(anchor) end
+            return self:_visible(view, ids)
+        end, false),
         on_back = self:_guard(view, "close cover grid", function()
             self:_close_view()
             on_back()
@@ -955,6 +984,9 @@ function CoverGrid:show(options)
             return true
         end, true),
     }
+    for _,name in ipairs({"on_toggle_view","on_switch_connection","on_actions","on_close"}) do
+        if type(options[name])=="function" then model[name]=self:_guard(view,name,options[name],true) end
+    end
     function model:selected_items()
         local selected = {}
         for _, item in ipairs(items) do

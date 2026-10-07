@@ -35,6 +35,22 @@ function Loader:request_cover(generation, image, callbacks)
     local state,key=self:protect_cover(generation,image)
     local path=self.cache:lookup(key)
     if path then if callbacks.on_ready then callbacks.on_ready(path,true) end; return true end
+    if self.cache.unified_quota then
+        local index_size=self.cache.store:cache_index_size(self.cache.entries,self.cache.browse_last_cleanup_at)
+        local registry_disk=self.cache.store.on_disk_size and self.cache.store:on_disk_size() or index_size
+        -- Reserve the bounded PNG plus room for registration growth before
+        -- downloading. The source worker receives the remaining byte limit.
+        local thumbnail_reserve=1024*1024
+        local available=self.cache.limit_bytes-self.cache:protected_size()
+            -self.cache:pending_size()-index_size-registry_disk-thumbnail_reserve
+        if available<1 or (tonumber(image.size) or 0)>available then
+            if callbacks.on_error then callbacks.on_error(Errors.storage("cache_limit")) end
+            return nil
+        end
+        self.cache.cover_limit_bytes=available
+        self.cache:evict((tonumber(image.size) or 0)>0 and image.size+thumbnail_reserve+registry_disk
+            or available+thumbnail_reserve+registry_disk)
+    end
     local source_identity=self.loader.identity
     return self.loader:request_cover(generation,image,{
         on_ready=function(source_path)
@@ -77,6 +93,7 @@ function Loader:cancel_cover_generation(generation)
         self.generations[generation]=nil
     end
     pcall(self.loader.cancel_cover_generation,self.loader,generation)
+    if self.cache.cleanup_browse then pcall(self.cache.cleanup_browse,self.cache,true) end
 end
 function Loader:cancel_all()
     local generations={};for generation in pairs(self.generations) do generations[#generations+1]=generation end

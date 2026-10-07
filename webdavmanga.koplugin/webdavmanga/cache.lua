@@ -273,13 +273,19 @@ function Cache:unprotect(key)
     return true
 end
 
+function Cache:pending_size()
+    local size=0
+    for path in pairs(self.owned_parts) do size=size+(tonumber(self.fs.size(path)) or 0) end
+    return size
+end
 function Cache:total_size(entries)
     local total = 0
     entries = entries or self.entries
     for _, record in pairs(entries) do total = total + (tonumber(record.size) or 0) end
     if self.unified_quota and self.store.cache_index_size then
-        total = total + self.store:cache_index_size(entries)
+        total = total + self.store:cache_index_size(entries,self.browse_last_cleanup_at)
     end
+    if self.unified_quota then total=total+self:pending_size() end
     return total
 end
 
@@ -612,6 +618,7 @@ function Cache:_evict_kind_to(kind, target_bytes, protected_keys)
 end
 
 function Cache:_evict(required_bytes, protected_keys)
+    if self.unified_quota then return self:_evict_to(self.limit_bytes-(tonumber(required_bytes) or 0),protected_keys) end
     local required = math.max(0, tonumber(required_bytes) or 0)
     return self:_evict_noncover_to(self.limit_bytes - required, protected_keys)
 end
@@ -774,7 +781,8 @@ function Cache:publish(record, part_path)
         entries[record.key] = candidate
         local size = self:total_size(entries)
         -- Atomic registry writes temporarily coexist with the previous file.
-        if self.store.cache_index_size then size = size + self.store:cache_index_size(self.entries) end
+        if self.store.on_disk_size then size=size+self.store:on_disk_size()
+        elseif self.store.cache_index_size then size = size + self.store:cache_index_size(self.entries,self.browse_last_cleanup_at) end
         return size
     end
     if self.unified_quota then
@@ -783,6 +791,12 @@ function Cache:publish(record, part_path)
                 self:total_size() - (projected_size() - quota)), protected)
             evicted = evicted or changed
             if not changed then break end
+            -- Reclaim the old registry as well, before the candidate's
+            -- atomic write needs room for both registration files.
+            if self:_flush()==false then
+                self.fs.remove(part_path)
+                return nil,"index_write_failed"
+            end
         end
     elseif kind == "cover" then
         _freed, evicted = self:_evict_kind_to(

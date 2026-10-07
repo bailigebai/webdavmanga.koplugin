@@ -1952,6 +1952,11 @@ local function default_ui()
                         registry:close(dialog)
                         if model.on_offline_cache then return model.on_offline_cache() end
                     end) }},
+                {{text="漫画书架封面缓存",enabled=model.on_bookshelf_cache~=nil,
+                    callback=guarded("open bookshelf cache settings",function()
+                        registry:close(dialog)
+                        if model.on_bookshelf_cache then return model.on_bookshelf_cache() end
+                    end)}},
                 {{ text = "清空图片缓存（仅索引）", callback = guarded("request cache clear", function() model.on_clear() end) }},
                 {{ text = "删除插件图片缓存文件", callback = guarded(
                     "request page cache file clear", function()
@@ -2175,6 +2180,7 @@ function UiSettings:new(deps)
     object.cache = assert(deps.cache, "cache is required")
     object.offline_cache = deps.offline_cache
     object.offline_manager = deps.offline_manager
+    object.bookshelf_ui=deps.bookshelf_ui
     object.identity_provider = deps.identity_provider or function() return "" end
     object.lighting = deps.lighting
     object.ui = deps.ui or default_ui()
@@ -2362,6 +2368,7 @@ function UiSettings:_invalidate_opds_test(lifecycle)
 end
 
 function UiSettings:close_all()
+    if self.bookshelf_ui then self.bookshelf_ui:close_all() end
     if self.opds_test_lifecycle then
         self.opds_test_lifecycle.closed = true
         self:_invalidate_opds_test()
@@ -3504,6 +3511,10 @@ function UiSettings:show_light()
     return true
 end
 
+function UiSettings:show_bookshelf_cache()
+    if self.bookshelf_ui then return self.bookshelf_ui:show() end
+    return false
+end
 function UiSettings:show_cache()
     local kind_size = type(self.cache.kind_size) == "function"
         and self.cache:kind_size("cover") or 0
@@ -3551,6 +3562,9 @@ function UiSettings:show_cache()
         on_stream_cache = self:_callback("open stream cache settings", function()
             return self:show_stream_cache()
         end, false),
+        on_bookshelf_cache=self.bookshelf_ui and self:_callback("open bookshelf cache settings",function()
+            return self:show_bookshelf_cache()
+        end,false) or nil,
         on_set_limit = self:_callback("set cache limit", function(limit_mb)
             local parsed_limit = tonumber(limit_mb)
             if parsed_limit == nil then

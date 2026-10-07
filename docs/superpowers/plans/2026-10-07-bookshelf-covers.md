@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lua 5.1、KOReader 原生图片渲染/PNG 编码、已有 json、Python/Lupa 规格运行器。无新增依赖。
 
-**Spec:** `E:/jiankong/webdav-manga-handoff/plans/2026-10-05-bookshelf-covers-design.md`（用户于2026-10-07确认并要求开始开发；其“待确认”状态已由此次授权替代）。
+**Spec:** `docs/superpowers/specs/2026-10-07-bookshelf-covers-design.md`（用户于2026-10-07确认并要求开始开发）。
 
 ## Global Constraints
 
@@ -71,7 +71,7 @@
 ### Task 3: 书架视图、工具栏与缓存管理
 
 **Files:**
-- Create: `webdavmanga.koplugin/webdavmanga/bookshelf_toolbar.lua`, `ui_bookshelf_cache.lua`
+- Create: `webdavmanga.koplugin/webdavmanga/bookshelf_toolbar.lua`, `ui_bookshelf_cache.lua`, `bookshelf.lua`（生命周期组装边界，见执行记录裁定）
 - Modify: `webdavmanga.koplugin/webdavmanga/ui_browser.lua`, `ui_cover_grid.lua`, `ui_settings.lua`, `main.lua`
 - Test: `spec/bookshelf_browser_spec.lua`, `spec/bookshelf_ui_spec.lua`
 

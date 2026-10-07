@@ -186,7 +186,17 @@ local function default_ui()
                 and G_reader_settings:readSetting("items_font_size")
                 or Menu.getItemFontSize(perpage or 14)
         end
+        local custom_title_bar
+        if model.on_toggle_view then
+            custom_title_bar=require("webdavmanga.bookshelf_toolbar").new({
+                title=model.title,subtitle=model.subtitle,view_mode=model.view_mode,
+                on_switch_connection=function() return invoke("switch bookshelf connection",model.on_switch_connection) end,
+                on_toggle_view=function() return invoke("toggle bookshelf view",model.on_toggle_view) end,
+                on_close=route_close,
+            })
+        end
         menu = Menu:new{ title = model.title, subtitle = model.subtitle,
+            custom_title_bar=custom_title_bar,
             -- A popout menu leaves rounded transparent corners.  On Kindle
             -- those corners can reveal a stale KOReader status-bar clock.
             is_popout = false,
@@ -224,7 +234,24 @@ local function default_ui()
             end
         end
         self.current_menu = menu
+        self.current_model = model
+        if model.initial_item_id then
+            for position,item in ipairs(items) do
+                if item.id==model.initial_item_id then
+                    menu.page=menu:getPageNumber(position);menu.itemnumber=position
+                    menu:updateItems();break
+                end
+            end
+        end
         UIManager:show(menu)
+    end
+    function adapter:get_anchor()
+        local menu=self.current_menu
+        if not menu then return nil end
+        local first=((menu.page or 1)-1)*(menu.perpage or 14)+1
+        for i=first,math.min(#menu.item_table,first+(menu.perpage or 14)-1) do
+            if menu.item_table[i].id then return menu.item_table[i].id end
+        end
     end
     return adapter
 end
@@ -239,6 +266,10 @@ function Browser:new(deps)
     o.premium_access = deps.premium_access
     o.request_license = deps.request_license
     o.cover_grid = deps.cover_grid; o.library = deps.library
+    o.bookshelf_grid=deps.bookshelf_grid
+    o.bookshelf_directory_store=deps.bookshelf_directory_store
+    o.on_bookshelf_refresh=deps.on_bookshelf_refresh
+    o.bookshelf_anchors={}
     o.document_cache = deps.document_cache
     o.opds_cover = deps.opds_cover
     o.manage_history = deps.manage_history
@@ -313,6 +344,7 @@ function Browser:_close_except(paths)
     end
 end
 function Browser:_begin_request(close_directories)
+    if self.bookshelf_grid then self.bookshelf_grid:cancel() end
     self.request_generation = self.request_generation + 1
     if self.active_handle and self.active_handle.cancel then
         pcall(self.active_handle.cancel, self.active_handle)
@@ -324,14 +356,27 @@ end
 function Browser:reset_session()
     self:cancel(); self:_close_directories(); self.page_models, self.last_directory_items, self.last_chapter_items = {}, {}, {}; self.last_library_items, self.return_paths = nil, {}
     self.current_path = self:_saved_browser_path(); self.manga_return_paths = self.return_paths; self.session_identity = identity(self.settings:get_connection()); self.session_epoch = self.session_epoch + 1
+    self.bookshelf_anchors={}
 end
 function Browser:_ensure_session_identity() if identity(self.settings:get_connection()) == self.session_identity then return false end; self:reset_session(); return true end
 
 function Browser:_load_directory(path, options, on_ready, on_error)
-    local store = self.directory_store
+    local store = options and options.store or self.directory_store
     path = Path.normalize_remote(path); local old = self.active_directories[path]; if old and old.close then pcall(old.close, old); self.active_directories[path] = nil end
     local generation = self.request_generation
     local failure = type(on_error) == "function" and on_error or function() end
+    if options and options.store then
+        local cached=not options.refresh and store.lookup and store:lookup(path)
+        if cached then
+            if cached.acquire then cached:acquire() end
+            self.active_directories[path]=cached;on_ready(cached)
+            return {cancel=function() end}
+        end
+        if self.network_manager and type(self.network_manager.willRerunWhenConnected)=="function"
+            and self.network_manager:willRerunWhenConnected(function()
+                if generation==self.request_generation then self:_load_directory(path,options,on_ready,on_error) end
+            end) then return end
+    end
     local handle = store:load(path, { refresh = options and options.refresh, on_ready = self:_callback("directory ready", function(d)
         if generation ~= self.request_generation then if d.close then d:close() end; return end; self.active_directories[path] = d; on_ready(d)
     end), on_error = self:_callback("directory error", failure) })
@@ -482,9 +527,6 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
             mandatory_func = function() return cache_enabled and "已开缓存" or "开启缓存" end,
             secondary_start = 0.5,
             callback = self:_callback("refresh library", function()
-                if self.directory_store and self.directory_store.invalidate then
-                    self.directory_store:invalidate(path)
-                end
                 self:show_library(true, path)
             end),
             secondary_callback = self:_callback("toggle bookshelf cache mode", function()
@@ -535,6 +577,7 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
             text = image_count > 0 and document_count > 0
                 and "当前文件夹（图片和文件）"
                 or (image_count > 0 and "当前文件夹（图片）" or "当前文件夹（文件）"),
+            id=current_folder.path,manga=current_folder,
             mandatory = cache_enabled and "缓存  进入漫画" or "进入漫画",
             mandatory_func = function()
                 return cache_enabled and "缓存  进入漫画" or "进入漫画"
@@ -564,6 +607,7 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
         current_folder_index = #items
     end
     for _, folder in ipairs(folders) do if self:_path_is_allowed(folder.path) then items[#items + 1] = { text = folder.name,
+        id=folder.path,manga=folder,
         mandatory = cache_enabled and "缓存  进入漫画" or "进入漫画",
         mandatory_func = function() return cache_enabled and "缓存  进入漫画" or "进入漫画" end,
         callback = self:_callback("enter directory", function()
@@ -600,6 +644,9 @@ end
 function Browser:_library_menu(path, items)
     local root = Path.normalize_remote(self.settings:get_connection().root_path)
     self.ui:show_menu{ title = "漫画书架", subtitle = path, items = items,
+        initial_item_id=self.bookshelf_grid and self.bookshelf_anchors[path] or nil,
+        view_mode="list",
+        on_toggle_view=self.bookshelf_grid and self:_callback("toggle bookshelf view",function() return self:_toggle_bookshelf_view(path) end,true) or nil,
         fixed_actions = true,
         equal_column_font = true,
         on_switch_connection = self:_callback("switch bookshelf connection", function()
@@ -620,27 +667,88 @@ function Browser:_library_menu(path, items)
             return self:_confirm_close_plugin()
         end, true),
         on_refresh = self:_callback("refresh bookshelf menu", function()
-            if self.directory_store and self.directory_store.invalidate then
-                self.directory_store:invalidate(path)
-            end
             self:show_library(true, path)
             return true
         end, true),
     }
 end
+function Browser:_toggle_bookshelf_view(path)
+    local mode=self.settings:get_bookshelf_view()
+    if mode=="list" and self.ui.get_anchor then
+        self.bookshelf_anchors[path]=self.ui:get_anchor() or self.bookshelf_anchors[path]
+    end
+    self.settings:set_bookshelf_view(mode=="list" and "covers" or "list")
+    self.settings:flush()
+    self:close_menu()
+    self:show_library(false,path)
+    return true
+end
+
+function Browser:_bookshelf_covers(path,items)
+    local grid=self.bookshelf_grid
+    local cards,actions={},{}
+    local function leave(callback) return function() return grid:leave_for(callback) end end
+    for _,item in ipairs(items) do
+        if item.manga then
+            local card={id=item.id,name=item.manga.name,manga=item.manga}
+            card.on_open=leave(function()
+                self.bookshelf_anchors[path]=item.id
+                return item.callback()
+            end)
+            card.on_hold=leave(function()
+                local cache_action=item.cache_callback or function()
+                    return self:_premium_gate("cache",item.manga,function() return self.cache_manga(item.manga) end)
+                end
+                self.ui:show_menu{title=item.manga.name,items={
+                    {text="进入漫画",callback=item.secondary_callback},
+                    {text="缓存漫画",callback=cache_action},
+                },on_back=function() self:show_library(false,path) end}
+            end)
+            cards[#cards+1]=card
+        else actions[#actions+1]=item end
+    end
+    self:close_menu()
+    grid:show{title="漫画书架",subtitle=path,view_mode="covers",items=cards,
+        initial_item_id=self.bookshelf_anchors[path],
+        on_anchor=function(id) self.bookshelf_anchors[path]=id end,
+        on_toggle_view=leave(function() return self:_toggle_bookshelf_view(path) end),
+        on_switch_connection=leave(function()
+            return self.settings_ui:show_connection(function() self:show_library(false,self.settings:get_connection().root_path) end)
+        end),
+        on_close=function() return self:_confirm_close_plugin() end,
+        on_actions=leave(function()
+            self.ui:show_menu{title="漫画书架操作",subtitle=path,items=actions,fixed_actions=true,
+                on_back=function() self:show_library(false,path) end}
+        end),
+        on_settings=function() return self.settings_ui:show_bookshelf_cache() end,
+        on_back=function()
+            local root=Path.normalize_remote(self.settings:get_connection().root_path)
+            if path==root then self:close_menu();self:_begin_request(true)
+            else self:show_library(false,parent_path(path,root)) end
+        end,
+    }
+end
+
 function Browser:show_library(is_refresh, target_path, target_page)
     if not self.settings:is_configured() then self.settings_ui:show_connection(function() self:show_library() end); return end
     self:_ensure_session_identity(); local connection = self.settings:get_connection(); local path = Path.normalize_remote(target_path or self.current_path or self:_saved_browser_path())
     if not Path.is_within_remote(path, connection.root_path) then path = Path.normalize_remote(connection.root_path); self.ui:show_info(Errors.message(Errors.invalid_path())) end
     target_page = target_page or 1; local generation = self:_begin_request(false)
     self:_close_except({ [path] = true })
-    local handle = self:_load_directory(path, { refresh = is_refresh, listing = "folders" }, function(d)
+    local store=self.bookshelf_directory_store or self.directory_store
+    if is_refresh then
+        if self.on_bookshelf_refresh then self.on_bookshelf_refresh(path)
+        elseif store.invalidate then store:invalidate(path) end
+    end
+    local handle = self:_load_directory(path, { refresh = is_refresh, listing = "folders",store=self.bookshelf_directory_store }, function(d)
         if generation ~= self.request_generation then return end; if not self:_set_browser_path(path) then return end
         local folders, images = directory_index(d, "folders"), directory_index(d, "images")
         local documents = directory_index(d, "documents")
         local direct_file_count = type(d.file_count) == "function" and d:file_count() or nil
         local items, model = self:_directory_items(path, folders, target_page, images,
-            documents, direct_file_count); self.page_models[path] = model; self.last_library_items = items; self.last_directory_items[path] = items; self:_library_menu(path, items)
+            documents, direct_file_count); self.page_models[path] = model; self.last_library_items = items; self.last_directory_items[path] = items
+        if self.bookshelf_grid and self.settings:get_bookshelf_view()=="covers" then self:_bookshelf_covers(path,items)
+        else self:_library_menu(path, items) end
         if (tonumber(folders and folders:count()) or 0) == 0
             and (tonumber(images and images:count()) or 0) == 0
             and (tonumber(documents and documents:count()) or 0) == 0 then
