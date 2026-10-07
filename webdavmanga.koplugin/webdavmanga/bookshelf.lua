@@ -35,12 +35,16 @@ function Shelf:new(options)
     o.source_loader=options.source_loader or SourceLoader:new{cache=o.cache,
         client_factory=client,identity=id.."\0bookshelf-source-v1",async=options.async,
         prefetch_concurrency=1,error_reporter=options.error_reporter,
+        download_limit_provider=function(image,part)
+            return o.cache:write_budget(ThumbnailLoader.MAX_PNG_BYTES,tonumber(image.size) or 0,part)
+        end,
         source_kind_provider=function() return o.settings:get_connection().kind or "webdav" end}
     o.loader=options.thumbnail_loader or ThumbnailLoader:new{cache=o.cache,
         loader=o.source_loader,identity=id.."\0bookshelf-thumbnail-v1",renderer=options.render_image}
     o.grid=options.grid or Grid:new{cover_service=o.cover,cache=o.cache,loader=o.loader,
         settings=o.settings,connection_provider=function() return o.settings:get_connection() end,
         scheduler=options.scheduler,render_image=options.render_image,ui=options.grid_ui,defer_ui=true,
+        fit_whole_image=true,
         error_reporter=options.error_reporter}
     o.settings_ui=options.settings_ui or SettingsUi:new{cache=o.cache,settings=o.settings,
         ui=options.settings_ui_adapter,error_reporter=options.error_reporter,

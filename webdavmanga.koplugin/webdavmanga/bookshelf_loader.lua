@@ -1,11 +1,14 @@
 local Errors = require("webdavmanga.errors")
 local Processor = require("webdavmanga.page_processor")
 local Loader = {}; Loader.__index = Loader
+-- Worst-case RGBA pixels plus PNG scanline/compression framing overhead.
+Loader.MAX_PNG_BYTES = 384*512*4+65536
 
 function Loader:new(options)
     return setmetatable({cache=assert(options.cache), loader=assert(options.loader),
         identity=assert(options.identity), processor=options.processor or Processor,
-        renderer=options.renderer, generations={}, sequence=0}, self)
+        renderer=options.renderer, image_probe=options.image_probe or require("webdavmanga.image_probe"),
+        generations={}, sequence=0}, self)
 end
 
 function Loader:cover_key(image)
@@ -36,32 +39,38 @@ function Loader:request_cover(generation, image, callbacks)
     local path=self.cache:lookup(key)
     if path then if callbacks.on_ready then callbacks.on_ready(path,true) end; return true end
     if self.cache.unified_quota then
-        local index_size=self.cache.store:cache_index_size(self.cache.entries,self.cache.browse_last_cleanup_at)
-        local registry_disk=self.cache.store.on_disk_size and self.cache.store:on_disk_size() or index_size
-        -- Reserve the bounded PNG plus room for registration growth before
-        -- downloading. The source worker receives the remaining byte limit.
-        local thumbnail_reserve=1024*1024
-        local available=self.cache.limit_bytes-self.cache:protected_size()
-            -self.cache:pending_size()-index_size-registry_disk-thumbnail_reserve
-        if available<1 or (tonumber(image.size) or 0)>available then
+        local direct=self.loader._uses_direct_local and self.loader:_uses_direct_local()
+        local required=not direct and (tonumber(image.size) or 0) or 0
+        local available=self.cache:write_budget(Loader.MAX_PNG_BYTES,required)
+        if available<1 or required>available then
             if callbacks.on_error then callbacks.on_error(Errors.storage("cache_limit")) end
             return nil
         end
         self.cache.cover_limit_bytes=available
-        self.cache:evict((tonumber(image.size) or 0)>0 and image.size+thumbnail_reserve+registry_disk
-            or available+thumbnail_reserve+registry_disk)
     end
     local source_identity=self.loader.identity
     return self.loader:request_cover(generation,image,{
-        on_ready=function(source_path)
+        on_ready=function(source_path,_cached,source_metadata)
             if state.canceled then self:_release_source(source_identity,image,source_path); return end
             local source_key=self.cache:key_for(source_identity,image.path,"cover")
             self.cache:protect(source_key)
             self.sequence=self.sequence+1
             local token="thumb"..self.sequence
             local _,part=self.cache:paths_for(key,"png",token)
-            local called,metadata,err=pcall(self.processor.process,source_path,part,
-                {target_width=384,target_height=512},{renderer=self.renderer})
+            local source_info=source_metadata
+            if not source_info or not source_info.width or not source_info.height then
+                local ok,info=pcall(self.image_probe.inspect,source_path,nil)
+                source_info=ok and info or nil
+            end
+            local width,height
+            if source_info then width,height=Processor.target_size(source_info.width,source_info.height,
+                {fit_mode="page",split_enabled=false},384,512) end
+            local called,metadata,err
+            if width and height and (not self.cache.unified_quota
+                or self.cache:write_budget(65536,Loader.MAX_PNG_BYTES,part)>=Loader.MAX_PNG_BYTES) then
+                called,metadata,err=pcall(self.processor.process,source_path,part,
+                    {target_width=width,target_height=height},{renderer=self.renderer})
+            else called=true;err="cache_limit" end
             self.cache:unprotect(source_key)
             self:_release_source(source_identity,image,source_path)
             if not called then err=metadata; metadata=nil end

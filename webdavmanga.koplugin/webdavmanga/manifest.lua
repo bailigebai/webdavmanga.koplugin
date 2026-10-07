@@ -380,6 +380,8 @@ local function new_context(options)
         nonce = build_nonce(options.nonce),
         open_handles = {},
         reserved_handles = {},
+        handle_paths = {},file_sizes = {},budget_used = 0,
+        max_temp_bytes = tonumber(options.max_temp_bytes),
         temp_paths = {},
         serial = 0,
         owned_count = 0,
@@ -430,6 +432,7 @@ local function must_open(context, path, mode)
     end
     local handle, err = context.fs.open(path, mode)
     if not handle then abort(storage_error(err or ("cannot open " .. tostring(path)))) end
+    if context.max_temp_bytes then context.handle_paths[handle]=path end
     context.open_handles[handle] = true
     context.open_count = context.open_count + 1
     observe_auxiliary(context)
@@ -441,18 +444,31 @@ local function must_close(context, handle)
     local ok, err = safe_close(handle)
     if not ok then abort(storage_error(err)) end
     context.open_handles[handle] = nil
+    context.handle_paths[handle]=nil
     context.open_count = context.open_count - 1
 end
 
-local function write_data(handle, value)
+local function write_data(context, handle, value)
+    local path=context.handle_paths[handle]
+    local growth=0
+    if context.max_temp_bytes then
+        local offset=seek_file(handle,"cur",0)
+        if not offset or not path then return nil,storage_error("budget position unavailable") end
+        growth=math.max(0,offset+#value-(context.file_sizes[path] or 0))
+        if context.budget_used+growth>context.max_temp_bytes then return nil,storage_error("cache_limit") end
+    end
     local called, result, detail = pcall(handle.write, handle, value)
     if not called then return nil, storage_error(result) end
-    if result == nil then return nil, storage_error(detail) end
+    if result == nil or result==false then return nil, storage_error(detail) end
+    if context.max_temp_bytes then
+        context.file_sizes[path]=(context.file_sizes[path] or 0)+growth
+        context.budget_used=context.budget_used+growth
+    end
     return true
 end
 
-local function must_write(handle, value)
-    local ok, err = write_data(handle, value)
+local function must_write(context, handle, value)
+    local ok, err = write_data(context, handle, value)
     if not ok then abort(err) end
 end
 
@@ -466,6 +482,7 @@ local function call_open_exclusive(context, path, mode)
     if not handle then
         return nil, storage_error(detail or "exclusive file creation failed")
     end
+    if context.max_temp_bytes then context.handle_paths[handle]=path end
     return handle
 end
 
@@ -518,7 +535,7 @@ local function acquire_build_lock(context)
     context.owned_count = context.owned_count + 1
     context.open_count = context.open_count + 1
     observe_auxiliary(context)
-    local written, write_error = write_data(handle, lock.payload)
+    local written, write_error = write_data(context, handle, lock.payload)
     if not written then abort(write_error) end
     local flushed, flush_error = flush_handle(handle)
     if not flushed then abort(flush_error) end
@@ -584,6 +601,8 @@ local function must_remove_temp(context, path)
     local removed, err = context.fs.remove(path)
     if not removed then abort(storage_error(err or "cannot remove manifest temporary file")) end
     context.temp_paths[path] = nil
+    context.budget_used=context.budget_used-(context.file_sizes[path] or 0)
+    context.file_sizes[path]=nil
     context.owned_count = context.owned_count - 1
 end
 
@@ -611,7 +630,7 @@ local function flush_record_run(context, records)
     for _, record in ipairs(records) do
         local encoded, err = encode_record(record)
         if not encoded then abort(err) end
-        must_write(handle, encoded)
+        must_write(context, handle, encoded)
     end
     must_close(context, handle)
     return path
@@ -640,7 +659,7 @@ local function merge_record_group(context, inputs)
         if not selected then break end
         local encoded, encode_error = encode_record(sources[selected].record)
         if not encoded then abort(encode_error) end
-        must_write(output, encoded)
+        must_write(context, output, encoded)
         local next_record, _bytes, read_error = read_record(sources[selected].handle)
         if not next_record and read_error ~= "eof" then abort(decode_error(read_error)) end
         sources[selected].record = next_record
@@ -657,7 +676,7 @@ local function flush_path_run(context, rows)
     local path = temp_path(context, "paths-run")
     local handle = must_open(context, path, "wb")
     for _, row in ipairs(rows) do
-        must_write(handle, ("%s\t%08x\t%08x"):format(
+        must_write(context, handle, ("%s\t%08x\t%08x"):format(
             row.hash, row.ordinal, #row.path) .. row.path)
     end
     must_close(context, handle)
@@ -743,7 +762,7 @@ local function merge_path_group(context, inputs)
         end
         if not selected then break end
         local row = sources[selected].row
-        must_write(output, ("%s\t%08x\t%08x"):format(
+        must_write(context, output, ("%s\t%08x\t%08x"):format(
             row.hash, row.ordinal, #row.path) .. row.path)
         local next_row, read_error = read_path_run_row(sources[selected].handle)
         if not next_row and read_error ~= "eof" then abort(decode_error(read_error)) end
@@ -815,7 +834,7 @@ local function copy_file(context, source_path, destination, expected_bytes)
             if read_error ~= "eof" then abort(read_error) end
             abort(Errors.decode("temporary file ended before expected section size"))
         end
-        must_write(destination, chunk)
+        must_write(context, destination, chunk)
         copied = copied + #chunk
     end
     local extra, extra_error = read_some(source, 1)
@@ -945,7 +964,7 @@ local function build_impl(context, options, emit_chunks)
             producer_failed = encode_error
             return nil, encode_error
         end
-        local written, write_error = write_data(spool, encoded)
+        local written, write_error = write_data(context, spool, encoded)
         if not written then
             producer_failed = write_error
             return nil, write_error
@@ -1029,7 +1048,7 @@ local function build_impl(context, options, emit_chunks)
     local path_rows = {}
     local path_runs = new_run_accumulator(context, merge_path_group)
     local output = must_open(context, build_path, "wb+")
-    must_write(output, manifest_header(count, folders, images, documents,
+    must_write(context, output, manifest_header(count, folders, images, documents,
         HEADER_SIZE, 0, 0, ZERO_DIGEST))
 
     local merged_handle
@@ -1045,10 +1064,10 @@ local function build_impl(context, options, emit_chunks)
         if ordinal > 0xffffffff then abort(Errors.decode("manifest has too many entries")) end
         local offset, seek_error = seek_file(output)
         if not offset then abort(seek_error) end
-        must_write(ordinals, ("%016x\n"):format(offset))
+        must_write(context, ordinals, ("%016x\n"):format(offset))
         local encoded, encode_error = encode_record(record)
         if not encoded then abort(encode_error) end
-        must_write(output, encoded)
+        must_write(context, output, encoded)
         local path_hash, hash_error = hash_value(context.md5, record.path)
         if not path_hash then abort(hash_error) end
         path_rows[#path_rows + 1] = {
@@ -1096,7 +1115,7 @@ local function build_impl(context, options, emit_chunks)
             end
             previous_path = row.path
             path_count = path_count + 1
-            must_write(output, ("%s\t%08x\n"):format(row.hash, row.ordinal))
+            must_write(context, output, ("%s\t%08x\n"):format(row.hash, row.ordinal))
         end
         must_close(context, paths_handle)
         if path_count ~= count then
@@ -1114,7 +1133,7 @@ local function build_impl(context, options, emit_chunks)
         HEADER_SIZE, ordinals_offset, paths_offset)
     local positioned, position_error = seek_file(output, "set", 0)
     if not positioned then abort(position_error) end
-    must_write(output, prefix .. "digest=" .. ZERO_DIGEST .. "\n\n")
+    must_write(context, output, prefix .. "digest=" .. ZERO_DIGEST .. "\n\n")
     local flushed, flush_error = output:flush()
     if flushed == nil then abort(storage_error(flush_error)) end
     local digest, digest_error = chained_digest(output, context.md5, prefix,
@@ -1122,7 +1141,7 @@ local function build_impl(context, options, emit_chunks)
     if not digest then abort(digest_error) end
     positioned, position_error = seek_file(output, "set", 0)
     if not positioned then abort(position_error) end
-    must_write(output, prefix .. "digest=" .. digest .. "\n\n")
+    must_write(context, output, prefix .. "digest=" .. digest .. "\n\n")
     local synced, sync_error = context.fs.sync(output, build_path)
     if not synced then abort(storage_error(sync_error)) end
     must_close(context, output)

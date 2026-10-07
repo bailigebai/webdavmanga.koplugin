@@ -138,9 +138,10 @@ function LocalClient:_produce_entries(remote_path, emit)
     return true
 end
 
-function LocalClient:write_directory_manifest(remote_path, part_path)
+function LocalClient:write_directory_manifest(remote_path, part_path, options)
     local descriptor, build_error = self.manifest.build({
         part_path = part_path,
+        max_temp_bytes=options and options.max_temp_bytes,
         request_path = remote_path,
         md5 = self.md5,
         fs = self.manifest_fs,

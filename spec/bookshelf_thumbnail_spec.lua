@@ -22,7 +22,7 @@ local processor={process=function(sourcepath,part,profile)
         and not profile.lut and not profile.crop,"thumbnail fits whole image without enhancement")
     files[part]=50;return {format="png",width=200,height=300,validated=true}
 end}
-local service=Loader:new{cache=cache,loader=source,identity="thumb",processor=processor}
+local service=Loader:new{cache=cache,loader=source,identity="thumb",processor=processor,image_probe={inspect=function() return {width=300,height=400} end}}
 local image={path="/m/001.jpg",name="001.jpg",etag="v1"}
 local src_key=cache:key_for(source.identity,image.path,"cover")
 records[src_key]={path="/shelf/original.jpg"};files["/shelf/original.jpg"]=500
@@ -55,4 +55,17 @@ pending[5].on_ready("/shelf/fail.jpg")
 expect(error_seen and not files["/shelf/fail.jpg"],"failed PNG frees original and reports placeholder")
 service:cancel_all()
 expect(next(protected)==nil,"teardown releases every thumbnail lease")
+-- Real processing dimensions must fit every ratio before native scaling.
+service.processor={process=function(_,part,profile)
+ files[part]=50;return {format="png",width=profile.target_width,height=profile.target_height,validated=true} end}
+local cases={{1000,1000,384,384},{2000,1000,384,192},{1000,4000,128,512}}
+for i,c in ipairs(cases) do
+ local item={path="/local/ratio"..i..".jpg",name="ratio.jpg"}
+ service:request_cover(10+i,item,{})
+ pending[10+i].on_ready(item.path,false,{width=c[1],height=c[2]})
+ local result=records[service:cover_key(item)]
+ expect(result.width==c[3] and result.height==c[4],"square, landscape and tall covers keep their aspect ratios")
+end
+
+
 print(("bookshelf_thumbnail_spec: %d checks"):format(checks))

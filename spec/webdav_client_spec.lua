@@ -470,4 +470,13 @@ os.remove(truncated_manifest_path)
 os.remove("spec/.tmp-client-escape.manifest")
 os.remove("spec/.tmp-client-denied.manifest")
 
+local budget_options
+local actual_get=transport.get_to_file
+transport.get_to_file=function(_,url,auth,part,progress,options)
+ budget_options=options;return nil,nil,"cache_limit","storage" end
+local bounded,bounded_error=client:download("/漫画/1.jpg","/cache/bounded.part",nil,{max_bytes=77})
+expect(not bounded and bounded_error.detail=="cache_limit" and budget_options.max_bytes==77,
+ "client carries quota through HTTP boundary and preserves its storage reason")
+transport.get_to_file=actual_get
+
 print(("webdav_client_spec: %d checks"):format(checks))

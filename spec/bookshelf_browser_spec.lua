@@ -53,4 +53,10 @@ bs.lookup=function() return cached end
 browser:show_library(false,"/m")
 expect(network_prompts==before,"saved directory opens offline before network prompt")
 browser:cancel();expect(not grid.is_open,"cancel closes bookshelf grid and pending covers")
+local invalidated
+browser.directory_store.invalidate_subtree=function(_,p) invalidated=p end
+browser:show_library(true,"/m/A")
+expect(invalidated=="/m/A","shelf refresh invalidates independent reader manifests")
+
+
 print(("bookshelf_browser_spec: %d checks"):format(checks))

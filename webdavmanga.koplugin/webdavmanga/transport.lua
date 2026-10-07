@@ -233,7 +233,7 @@ function Transport:propfind_stream(url, auth, on_chunk)
     return code, headers, status, nil
 end
 
-function Transport:get_to_file(url, auth, part_path, progress_callback)
+function Transport:get_to_file(url, auth, part_path, progress_callback, options)
     local handle, open_error = self.open_file(part_path, "wb")
     if not handle then
         self.remove_file(part_path)
@@ -261,10 +261,16 @@ function Transport:get_to_file(url, auth, part_path, progress_callback)
         end,
     }
     local sink = self.ltn12.sink.file(sink_handle)
+    local maximum=options and tonumber(options.max_bytes)
+    local received=0
     local sink_error
     if type(sink) == "function" then
         local file_sink = sink
         sink = function(chunk, err)
+            if chunk and maximum and received+#chunk>maximum then
+                sink_error="cache_limit";return nil,sink_error
+            end
+            if chunk then received=received+#chunk end
             local ok, result, write_error = pcall(file_sink, chunk, err)
             if not ok then
                 sink_error = result
@@ -421,6 +427,7 @@ end
 -- that ignores Range or returns an invalid interval falls back to one full GET.
 function Transport:get_range_to_file(url, auth, part_path, progress_callback, options)
     options = options or {}
+    local maximum=tonumber(options.max_bytes)
     local chunk_size = math.floor(tonumber(options.chunk_size) or 1024 * 1024)
     if chunk_size < 32 * 1024 then chunk_size = 32 * 1024 end
     if chunk_size > 4 * 1024 * 1024 then chunk_size = 4 * 1024 * 1024 end
@@ -452,6 +459,9 @@ function Transport:get_range_to_file(url, auth, part_path, progress_callback, op
                 close_handle()
                 if err then sink_error = err; return nil, err end
                 return 1
+            end
+            if maximum and (mode=="ab" and first or 0)+bytes+#chunk>maximum then
+                sink_error="cache_limit";return nil,sink_error
             end
             local ok, result, detail = pcall(handle.write, handle, chunk)
             if not ok or result == nil or result == false then
@@ -504,15 +514,19 @@ function Transport:get_range_to_file(url, auth, part_path, progress_callback, op
         -- with 405/416 (or another non-206 status). A complete GET is still
         -- a valid and more compatible way to fetch the image.
         self.remove_file(part_path)
-        return self:get_to_file(url, auth, part_path, progress_callback)
+        return self:get_to_file(url, auth, part_path, progress_callback, options)
     end
 
     local first, last, total = parse_content_range(header_value(headers, "content-range"))
     if first ~= 0 or not last or not total or bytes ~= last - first + 1 then
         self.remove_file(part_path)
-        return self:get_to_file(url, auth, part_path, progress_callback)
+        return self:get_to_file(url, auth, part_path, progress_callback, options)
     end
 
+    if maximum and total>maximum then
+        self.remove_file(part_path)
+        return nil,nil,"cache_limit","storage"
+    end
     local response_headers = copy_headers(headers)
     local if_range = header_value(headers, "etag")
         or header_value(headers, "last-modified")
@@ -526,11 +540,11 @@ function Transport:get_range_to_file(url, auth, part_path, progress_callback, op
         end
         if part_code == 200 then
             self.remove_file(part_path)
-            return self:get_to_file(url, auth, part_path, progress_callback)
+            return self:get_to_file(url, auth, part_path, progress_callback, options)
         end
         if part_code ~= 206 then
             self.remove_file(part_path)
-            return self:get_to_file(url, auth, part_path, progress_callback)
+            return self:get_to_file(url, auth, part_path, progress_callback, options)
         end
         local part_first, part_last, part_total = parse_content_range(
             header_value(part_headers, "content-range"))
@@ -540,7 +554,7 @@ function Transport:get_range_to_file(url, auth, part_path, progress_callback, op
             or part_total ~= total or part_bytes ~= part_last - part_first + 1
             or (if_range and part_entity and part_entity ~= if_range) then
             self.remove_file(part_path)
-            return self:get_to_file(url, auth, part_path, progress_callback)
+            return self:get_to_file(url, auth, part_path, progress_callback, options)
         end
         offset = part_last + 1
         status = part_status

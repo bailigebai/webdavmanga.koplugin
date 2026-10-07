@@ -2313,6 +2313,19 @@ end
 for _, path in ipairs(invalid_size_paths) do os.remove(path) end
 for _, path in ipairs(io_fault_paths) do os.remove(path) end
 
+local budget_path=temp_prefix..".budget.manifest"
+local limited,limited_error=Manifest.build({part_path=budget_path,request_path="/Books/A",
+ md5=fake_md5,max_temp_bytes=400,run_size=2},function(emit)
+ assert(emit({full_path="/Books/A",name="A",is_folder=true}))
+ for i=1,100 do local ok,err=emit({full_path="/Books/A/"..i..".jpg",name=i..".jpg",size=10,is_file=true})
+  if not ok then return nil,err end end
+ return true
+end)
+expect(not limited and limited_error.code=="storage" and limited_error.detail=="cache_limit",
+ "manifest quota includes spool, sorted runs, lock and final output before writes")
+expect(not path_exists(budget_path),"over-budget manifest never publishes its final file")
+
+
 print(("manifest_spec: %d checks; 20000 entries built in %.3fs; bytes %d; "
     .. "max run %d; active runs %d; merge sources %d; owned temps %d; "
     .. "aux %d; max read %d; xml retained %d")

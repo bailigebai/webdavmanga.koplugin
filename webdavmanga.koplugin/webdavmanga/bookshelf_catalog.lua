@@ -41,13 +41,14 @@ function Catalog:_save(connection,path,image,none)
     local ok,bytes=pcall(self.json.encode,{manga_path=path,image=image,none=none or nil})
     if not ok or type(bytes)~="string" or #bytes>65536 then return nil end
     local key=self:_key(connection,path)
+    if self.cache.unified_quota and self.cache:write_budget(65536,#bytes)<#bytes then return nil end
     self.sequence=self.sequence+1;local token="selection"..self.sequence
     local _,part=self.cache:paths_for(key,"manifest",token)
     local file=self.cache.fs.open(part,"wb")
     if not file then return nil end
     local wrote,result=pcall(file.write,file,bytes)
     local closed,close_result=pcall(file.close,file)
-    if not wrote or not result or not closed or close_result==false then
+    if not wrote or not result or not closed or not close_result then
         self.cache:discard_part(key,"manifest",token);return nil
     end
     local published=self.cache:publish({key=key,kind="manifest",extension="manifest",

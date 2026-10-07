@@ -662,6 +662,8 @@ function CoverGrid:new(deps)
     object.connection_provider = assert(deps.connection_provider, "connection provider is required")
     object.settings = assert(deps.settings, "settings is required")
     object.render_image = deps.render_image
+    object.fit_whole_image = deps.fit_whole_image == true
+    object.image_probe = deps.image_probe or require("webdavmanga.image_probe")
     object.render_document_cover = deps.render_document_cover
     object.scheduler = deps.scheduler or default_scheduler()
     object.ui = deps.ui
@@ -734,6 +736,13 @@ function CoverGrid:_render_cover(generation, item, local_path)
     local renderer = self:_renderer()
     if not renderer or type(renderer.renderImageFile) ~= "function" then return false end
     local width, height = self:_target_size()
+    if self.fit_whole_image then
+        local inspected,info=pcall(self.image_probe.inspect,local_path,nil)
+        if not inspected or not info then return false end
+        width,height=require("webdavmanga.page_processor").target_size(info.width,info.height,
+            {fit_mode="page",split_enabled=false},width,height)
+        if not width then return false end
+    end
     local ok, buffer = pcall(renderer.renderImageFile, renderer, local_path, false, width, height)
     if not ok or not buffer then return false end
     if not self:_is_current(generation) then

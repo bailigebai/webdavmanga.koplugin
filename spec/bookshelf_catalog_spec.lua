@@ -29,4 +29,11 @@ expect(catalog:set_no_cover(c,"/m/B") and catalog:get_cover(c,"/m/B").none,"succ
 expect(snapshots[1].password==nil and snapshots[1].image.password==nil,"selection excludes credentials")
 catalog:invalidate(c,"/m/A")
 expect(not catalog:get_cover(c,"/m/A") and catalog:get_cover(c,"/m/B").none,"refresh only invalidates matching subtree")
+cache.unified_quota=true;cache.write_budget=function() return 0 end
+local count=#snapshots;local opened_count=0;local open=cache.fs.open
+cache.fs.open=function(...) opened_count=opened_count+1;return open(...) end
+expect(not catalog:set_cover(c,"/m/C",image) and opened_count==0,
+ "selection index checks capacity before opening any output")
+
+
 print(("bookshelf_catalog_spec: %d checks"):format(checks))

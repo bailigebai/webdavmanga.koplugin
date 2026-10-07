@@ -24,4 +24,15 @@ local ok,deferred=pcall(Grid.new,Grid,{cover_service=grid.cover_service,cache=gr
     loader=grid.loader,connection_provider=grid.connection_provider,settings=grid.settings,defer_ui=true})
 expect(ok and deferred.ui==nil,"unused shelf must not allocate native UI at plugin startup")
 expect(deferred:cancel()==false,"unused lazy shelf can be torn down")
+local rendered_size
+local fitted=Grid:new{cover_service=grid.cover_service,cache=grid.cache,loader=grid.loader,
+ connection_provider=grid.connection_provider,settings=grid.settings,
+ fit_whole_image=true,image_probe={inspect=function() return {width=384,height=192} end},
+ ui={get_cover_size=function() return 120,160 end,update_cover=function() return true end},
+ render_image={renderImageFile=function(_,p,frames,w,h) rendered_size={w,h};return {} end}}
+fitted.is_open=true;fitted.active_generation=1
+fitted:_render_cover(1,{id="A"},"/shelf/landscape.png")
+expect(rendered_size[1]==120 and rendered_size[2]==60,"grid presentation preserves thumbnail ratio too")
+
+
 print(("bookshelf_grid_spec: %d checks"):format(checks))

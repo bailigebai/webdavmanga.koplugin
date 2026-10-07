@@ -737,6 +737,9 @@ function Browser:show_library(is_refresh, target_path, target_page)
     self:_close_except({ [path] = true })
     local store=self.bookshelf_directory_store or self.directory_store
     if is_refresh then
+        if self.bookshelf_directory_store and self.directory_store.invalidate_subtree then
+            self.directory_store:invalidate_subtree(path)
+        end
         if self.on_bookshelf_refresh then self.on_bookshelf_refresh(path)
         elseif store.invalidate then store:invalidate(path) end
     end

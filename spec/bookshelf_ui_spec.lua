@@ -25,4 +25,7 @@ adapter.model.on_cleanup();expect(cleaned>=1,"manual cleanup obeys policy")
 adapter.model.on_clear();expect(cleared==0 and adapter.confirmation,"clear requires explicit cache confirmation")
 adapter.confirmation.on_confirm();expect(cleared==1 and adapter.info:find("10"),"clear reports protected bytes retained")
 ui:close_all()
+expect(adapter.info:find("120.00",1,true),"clear reports actual remaining usage as well as protected usage")
+
+
 print(("bookshelf_ui_spec: %d checks"):format(checks))

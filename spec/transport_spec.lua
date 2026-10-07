@@ -363,4 +363,34 @@ expect(rejected_code == nil and rejected_headers == nil and rejected_status == n
     and rejected_error == "parser rejected chunk" and callback_calls == 1,
     "a chunk consumer failure should abort the sink and remain bounded")
 
+http_mode="success";fail_write=false
+local bounded_path="/cache/bounded.part"
+local c,_,reason,kind=transport:get_to_file("http://nas/page.jpg",auth,bounded_path,nil,{max_bytes=6})
+expect(c==nil and kind=="storage" and reason=="cache_limit" and written_by_path[bounded_path]==5,
+ "full GET rejects oversize chunk before writing and reports quota exhaustion")
+expect(removed[#removed]==bounded_path,"bounded full GET cleans its partial file")
+local range_path="/cache/bounded-range.part"
+local rc,_,rr,rk=transport:get_range_to_file("http://nas/page.jpg",auth,range_path,nil,{max_bytes=6})
+expect(rc==nil and rk=="storage" and rr=="cache_limit" and written_by_path[range_path]==5,
+ "Range server returning full 200 remains bounded")
+
+
+local full=original_request;local requests=0
+fake_http.request=function(request)
+ requests=requests+1
+ if request.headers.Range then return 1,416,{},"range unsupported" end
+ return full(request)
+end
+local fallback="/cache/bounded-fallback.part"
+local fc,_,fr,fk=transport:get_range_to_file("http://nas/page.jpg",auth,fallback,nil,{max_bytes=6})
+expect(requests==2 and fc==nil and fk=="storage" and fr=="cache_limit" and written_by_path[fallback]==5,
+ "full GET fallback preserves the same capacity limit")
+fake_http.request=function(request)
+ request.sink("page-");request.sink(nil)
+ return 1,206,{["Content-Range"]="bytes 0-4/100"},"partial"
+end
+local tc,_,tr,tk=transport:get_range_to_file("http://nas/page.jpg",auth,"/cache/bounded-total.part",nil,{max_bytes=6})
+expect(tc==nil and tk=="storage" and tr=="cache_limit","announced oversize Range total stops before next interval")
+fake_http.request=full
+
 print(("transport_spec: %d checks"):format(checks))

@@ -37,6 +37,7 @@ function Loader:new(options)
     object.pdf_image_stream = options.pdf_image_stream or PdfImageStream:new()
     object.image_probe = options.image_probe or ImageProbe
     object.direct_local = options.direct_local == true
+    object.download_limit_provider = options.download_limit_provider
     object.prefetch_count = tonumber(options.prefetch_count) or 3
     object.prefetch_first_pages = tonumber(options.prefetch_first_pages)
     object.prefetch_near_count = tonumber(options.prefetch_near_count)
@@ -563,7 +564,13 @@ function Loader:_start_job(job, slot)
             direct_local = false
         end
     end
+    local download_options
+    if job.kind=="cover" and not direct_local and self.download_limit_provider then
+        local limit=self.download_limit_provider(job.image,part_path)
+        download_options={max_bytes=math.max(0,tonumber(limit) or 0)}
+    end
     local handle = self.async.run(function()
+        if download_options and download_options.max_bytes<1 then return {error=Errors.storage("cache_limit")} end
         if archive_entry then
             if job.image.archive_local_path then
                 local metadata, extract_error = self.archive_pages:extract_local(job.image, part_path)
@@ -744,7 +751,7 @@ function Loader:_start_job(job, slot)
             if not path then return { error = metadata } end
             return { direct_path = path, metadata = metadata }
         end
-        local metadata, err = client:download(job.image.path, part_path)
+        local metadata, err = client:download(job.image.path, part_path,nil,download_options)
         if not metadata then return { error = err } end
         return { metadata = metadata }
     end, function(ok, result, async_error, async_state)
@@ -759,7 +766,7 @@ function Loader:_start_job(job, slot)
         end
 
         if err then
-            if err.code == "storage" and transfer.attempt == 1 then
+            if err.code == "storage" and err.detail~="cache_limit" and transfer.attempt == 1 then
                 self:_retry_storage(job, transfer, err)
                 return
             end

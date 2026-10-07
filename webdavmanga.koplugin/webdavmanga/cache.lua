@@ -208,6 +208,10 @@ function Cache:new(options)
 end
 
 function Cache:_flush()
+    if self.unified_quota and self.store.cache_index_size then
+        local previous=self.store.on_disk_size and self.store:on_disk_size() or 0
+        if self:total_size()+previous>self.limit_bytes then return false end
+    end
     self.store:saveSetting("schema_version", self.schema_version)
     self.store:saveSetting("migration_pending", self.migration_pending == true)
     self.store:saveSetting("entries", self.entries)
@@ -273,10 +277,36 @@ function Cache:unprotect(key)
     return true
 end
 
+function Cache:_part_size(part)
+    local size=tonumber(self.fs.size(part)) or 0
+    if self.unified_quota and self.fs.list then
+        each_file(self.fs,self.root,function(entry)
+            if entry.path and entry.path:sub(1,#part+5)==part..".wdm-" then
+                size=size+(tonumber(self.fs.size(entry.path)) or tonumber(entry.size) or 0)
+            end
+        end)
+    end
+    return size
+end
 function Cache:pending_size()
     local size=0
-    for path in pairs(self.owned_parts) do size=size+(tonumber(self.fs.size(path)) or 0) end
+    for path in pairs(self.owned_parts) do size=size+self:_part_size(path) end
     return size
+end
+function Cache:write_budget(reserve,required,part)
+    reserve=math.max(0,tonumber(reserve) or 0)
+    local disk=self.store.on_disk_size and self.store:on_disk_size() or 0
+    local held=0
+    for path,amount in pairs(self.write_reservations or {}) do
+        if path~=part then held=held+math.max(0,amount-self:_part_size(path)) end
+    end
+    self:evict((tonumber(required) or 0)+reserve+disk+held,self.protected_keys)
+    local available=math.max(0,self.limit_bytes-self:total_size()-disk-reserve-held)
+    if part and available>0 then
+        self.write_reservations=self.write_reservations or {}
+        self.write_reservations[part]=available+reserve
+    end
+    return available
 end
 function Cache:total_size(entries)
     local total = 0
@@ -690,6 +720,7 @@ end
 function Cache:publish(record, part_path)
     record = record or {}
     self.owned_parts[part_path] = nil
+    if self.write_reservations then self.write_reservations[part_path]=nil end
     local kind = record.kind or "page"
     if not ALLOWED_KINDS[kind] then
         self.fs.remove(part_path)
@@ -846,6 +877,14 @@ function Cache:discard_part(key, extension, part_token)
     local token = tostring(part_token or ""):match("^([%w_-]+)$")
     local part_path = token and final_path .. "." .. token .. ".part" or final_path .. ".part"
     self.owned_parts[part_path] = nil
+    if self.write_reservations then self.write_reservations[part_path]=nil end
+    if self.unified_quota and self.fs.list then
+        each_file(self.fs,self.root,function(entry)
+            if entry.path and entry.path:sub(1,#part_path+5)==part_path..".wdm-" then
+                self.fs.remove(entry.path)
+            end
+        end)
+    end
     local removed = self.fs.remove(part_path)
     return removed or not self.fs.exists(part_path)
 end

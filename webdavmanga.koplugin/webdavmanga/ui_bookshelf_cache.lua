@@ -96,8 +96,8 @@ function Ui:show()
                 on_confirm=self:_callback("clear bookshelf cache",function()
                     local ok,retained=cache:clear()
                     self:show()
-                    self.ui:show_info((ok and "书架缓存已清理，使用中保留 %.2f MB。" or "部分书架缓存清理失败，使用中保留 %.2f MB。")
-                        :format((tonumber(retained) or 0)/MB))
+                    self.ui:show_info((ok and "书架缓存已清理，使用中保留 %.2f MB；实际剩余 %.2f MB。" or "部分书架缓存清理失败，使用中保留 %.2f MB；实际剩余 %.2f MB。")
+                        :format((tonumber(retained) or 0)/MB,cache:total_size()/MB))
                 end)}
         end),
     }

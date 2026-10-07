@@ -43,7 +43,7 @@ local fs = {
     make_path=function() return true end,
     exists=function(path) return files[path] ~= nil end,
     size=function(path) return files[path] and #files[path] end,
-    list=function() return {} end,
+    list=function() local out={};for path,bytes in pairs(files) do out[#out+1]={path=path,size=#bytes} end;return out end,
     remove=function(path) files[path]=nil; return true end,
     rename=function(from,to) if failed_rename or not files[from] then return nil end
         files[to]=files[from]; files[from]=nil; return true end,
@@ -94,4 +94,27 @@ expect(registry:flush()==false and files["/shelf/index.json"]==before
     and not files["/shelf/index.json.part"], "failed atomic save keeps previous registry")
 failed_rename=false; files["/shelf/index.json"]="broken"
 expect(next(store():readSetting("entries",{}))==nil, "corrupt registry cannot resurrect unsafe paths")
+-- Production adapter must count the previous atomic registry too.
+local disk_path=os.tmpname();local disk=assert(io.open(disk_path,"wb"))
+assert(disk:write("broken registry"));assert(disk:close())
+local native_store=Store:new{path=disk_path,json=json}
+expect(native_store:on_disk_size()==15,"default filesystem counts actual old registry bytes")
+os.remove(disk_path)
+local failed_close_fs={open=function(_,mode) if mode=="rb" then return nil end;return {write=function() return true end,
+ close=function() return nil,"disk full" end} end,remove=function() end,rename=function() error("failed close cannot rename") end}
+expect(Store:new{path="/bad",fs=failed_close_fs,json=json}:flush()==false,"nil close result fails atomic registration")
+
+
+-- A canceled but unreaped producer still owns its full admitted budget.
+local budget_cache=Cache:new{root="/shelf",limit_bytes=2400,unified_quota=true,
+ store=store(),fs=fs,clock=function() return now end}
+local _,part=budget_cache:paths_for(string.rep("a",32),"manifest","writer")
+local admitted=budget_cache:write_budget(100,0,part)
+expect(admitted>0 and budget_cache:write_budget(100,0)==0,"producer budget stays reserved until reap")
+files[part..".wdm-worker-1-spool"]=string.rep("x",80)
+expect(budget_cache:pending_size()==80,"directory sort temporaries count while worker is alive")
+budget_cache:discard_part(string.rep("a",32),"manifest","writer")
+expect(not files[part..".wdm-worker-1-spool"] and budget_cache:write_budget(100,0)>0,
+ "reap removes only owned auxiliary files and releases producer capacity")
+
 print(("bookshelf_cache_spec: %d checks"):format(checks))

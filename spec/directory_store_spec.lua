@@ -422,4 +422,21 @@ do
         "releasing a manifest lease must preserve the reader protection set")
 end
 
+do
+ local reader,rc,async,scheduler=fixture()
+ local shelf,sc,sasync,sscheduler=fixture()
+ local old,current,saved_shelf
+ reader:load("/Books/A",{on_ready=function(d) old=d end})
+ async.tasks[1].done(true,async.tasks[1].work())
+ shelf:load("/Books/A",{on_ready=function(d) saved_shelf=d end})
+ sasync.tasks[1].done(true,sasync.tasks[1].work())
+ reader:invalidate_subtree("/Books")
+ expect(old.closed and not saved_shelf.closed,"reader and shelf stores invalidate independently")
+ reader:load("/Books/A",{on_ready=function(d) current=d end})
+ expect(#async.tasks==2,"refresh forces next reader entry to fetch server again")
+ async.tasks[2].done(true,async.tasks[2].work())
+ expect(current and current~=old,"updated reader directory replaces old page index")
+ reader:cancel_all();shelf:cancel_all()
+end
+
 print(("directory_store_spec: %d checks"):format(checks))

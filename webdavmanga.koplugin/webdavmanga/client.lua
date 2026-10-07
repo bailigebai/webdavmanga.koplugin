@@ -149,12 +149,13 @@ local function streamed_error(code, status, stream_error)
     return nil
 end
 
-function Client:write_directory_manifest(remote_path, part_path)
+function Client:write_directory_manifest(remote_path, part_path, options)
     if not Path.is_within_remote(remote_path, self.connection.root_path) then
         return nil, Errors.invalid_path()
     end
     local descriptor, build_error = Manifest.build({
         part_path = part_path,
+        max_temp_bytes=options and options.max_temp_bytes,
         request_path = remote_path,
         md5 = self.md5,
         fs = self.manifest_fs,
@@ -189,7 +190,7 @@ function Client:write_directory_manifest(remote_path, part_path)
     return result
 end
 
-function Client:download(remote_path, part_path, progress_callback)
+function Client:download(remote_path, part_path, progress_callback, options)
     if not Path.is_within_remote(remote_path, self.connection.root_path) then
         return nil, Errors.invalid_path()
     end
@@ -197,7 +198,7 @@ function Client:download(remote_path, part_path, progress_callback)
         and self.range_download ~= false and self.transport.get_range_to_file
         or self.transport.get_to_file
     local code, headers, status, error_kind = download_method(self.transport,
-        self:_resource_url(remote_path), self:_auth(), part_path, progress_callback)
+        self:_resource_url(remote_path), self:_auth(), part_path, progress_callback, options)
     if type(code) ~= "number" then
         if error_kind == "storage" then return nil, Errors.storage(status) end
         return nil, Errors.transport(status or code)

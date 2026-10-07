@@ -291,6 +291,10 @@ function DirectoryStore:load(remote_path, callbacks)
         end
     end
 
+    local manifest_options
+    if self.cache.unified_quota then
+        manifest_options={max_temp_bytes=self.cache:write_budget(65536,0,request.part_path)}
+    end
     request.async_handle = self.async.run(function()
         if not request_client then
             return { error = Errors.transport("client initialization failed") }
@@ -298,7 +302,7 @@ function DirectoryStore:load(remote_path, callbacks)
         local descriptor, err
         for attempt = 1, self.decode_retry_limit + 1 do
             descriptor, err = request_client:write_directory_manifest(
-                remote_path, request.part_path)
+                remote_path, request.part_path,manifest_options)
             if descriptor or type(err) ~= "table" or err.code ~= "decode"
                 or attempt > self.decode_retry_limit then
                 break
@@ -346,6 +350,18 @@ function DirectoryStore:load(remote_path, callbacks)
     end, async_options)
 
     return public_handle
+end
+
+function DirectoryStore:invalidate_subtree(remote_path)
+    remote_path=Path.normalize_remote(remote_path)
+    local paths={[remote_path]=true}
+    for path in pairs(self.pending) do if Path.is_within_remote(path,remote_path) then paths[path]=true end end
+    for path in pairs(self.directories_by_path) do if Path.is_within_remote(path,remote_path) then paths[path]=true end end
+    for _,record in pairs(self.cache.entries or {}) do
+        if Path.is_within_remote(record.remote_path,remote_path)
+            and record.key==self:_cache_key(record.remote_path) then paths[record.remote_path]=true end
+    end
+    for path in pairs(paths) do self:invalidate(path) end
 end
 
 function DirectoryStore:invalidate(remote_path)

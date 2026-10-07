@@ -34,7 +34,14 @@ function Store:cache_index_size(entries,last_cleanup_at)
     if not ok or type(bytes) ~= "string" then return math.huge end
     return #bytes
 end
-function Store:on_disk_size() return tonumber(self.fs.size and self.fs.size(self.path)) or 0 end
+function Store:on_disk_size()
+    if self.fs.size then return tonumber(self.fs.size(self.path)) or 0 end
+    local file=self.fs.open(self.path,"rb")
+    if not file then return 0 end
+    local ok,size=pcall(file.seek,file,"end")
+    file:close()
+    return ok and tonumber(size) or 0
+end
 
 function Store:flush()
     local ok, bytes = pcall(self.json.encode, self.data)
@@ -44,7 +51,7 @@ function Store:flush()
     if not file then return false end
     local wrote, result = pcall(file.write, file, bytes)
     local closed, close_result = pcall(file.close, file)
-    if not wrote or not result or not closed or close_result == false
+    if not wrote or not result or not closed or not close_result
         or not self.fs.rename(part, self.path) then
         self.fs.remove(part)
         return false
