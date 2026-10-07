@@ -6,9 +6,29 @@
 
 ## 安装
 
-下载 [最新安装 ZIP](releases/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip)，解压后把 `webdavmanga.koplugin` 文件夹放入 KOReader 的 `plugins/` 目录，再完全退出并重启 KOReader。覆盖前备份原插件；账号和服务器地址在设备的插件设置中填写。
+正式安装包以 [GitHub Releases 最新版本](https://github.com/bailigebai/webdavmanga.koplugin/releases/latest) 为准。
 
-## 本次修复：阅读状态与提示刷新
+[下载 v0.4.15 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip.sha256) · [仓库内相同副本](releases/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip)
+
+1. 下载上面的安装 ZIP，解压得到 `webdavmanga.koplugin` 文件夹。
+2. 完全退出 KOReader，备份原插件，再把整个文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
+3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
+4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.15`。连接信息在插件的连接设置中填写。
+
+升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
+
+qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择正式版 `v0.4.15` 的 ZIP 附件，安装完成后重启 KOReader。
+
+## v0.4.15：漫画书架封面浏览
+
+- 书架左上角连接按钮旁增加列表／封面切换，记住显示方式和目录位置；点卡片进入目录，长按卡片选择阅读或缓存。
+- 优先选择当前文件夹数字自然排序的第一张图片；没有直属图片时只查下一层子目录，空目录继续查同层下一项。封面完整等比显示，仅加载当前屏幕。
+- 新增独立“漫画书架封面缓存”，默认最大200MB、超过150MB清理到100MB、每10分钟检查；支持修改策略、按规则清理和清空生成缓存。使用中的文件受保护，清理显示实际剩余占用。
+- 修复缓存写入预算、横图拉伸、本地大图误拒绝及书架刷新后阅读目录未更新的边界。
+
+[本版改动、验证与验收](docs/releases/v0.4.15.md)。本版封面目录用于 WebDAV 和本地书架；无封面的卡片仍可进入，纯归档／文档目录不为生成封面下载整本书。已缓存目录可断网浏览，封面缓存不代表整本漫画离线。
+
+## 已包含：阅读状态与提示刷新
 
 - 去灰和亮度/对比度关闭后，旧预处理回调和单纯自动裁边不会显示增强成功；所有增强与裁边关闭时直接使用原图。
 - 智能分格遇到无法识别的页时完整适屏显示本页，下一页自动续检；连续失败页、反向导航、长页、拆分页以及主动退出均有回归检查。关闭分格或切换内存引擎后恢复普通翻页。
