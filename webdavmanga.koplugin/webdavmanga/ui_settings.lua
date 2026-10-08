@@ -272,6 +272,17 @@ local function default_ui()
             return result == nil and true or (result == false and true or result)
         end
     end
+    local function defer_current(epoch, label, callback)
+        local continuation = guarded(label, function()
+            if adapter.dialog_epoch ~= epoch then return true end
+            return callback()
+        end)
+        if type(UIManager.nextTick) == "function" then
+            local ok, result = pcall(UIManager.nextTick, UIManager, continuation)
+            if ok and result ~= false then return true end
+        end
+        return continuation()
+    end
     function adapter:show_info(message, timeout)
         UIManager:show(InfoMessage:new{ text = message, timeout = timeout or 3 })
     end
@@ -1074,17 +1085,7 @@ local function default_ui()
 
         local function after_close(widget, callback)
             close(widget)
-            local function continue_if_current()
-                if adapter.dialog_epoch ~= dialog_epoch then return false end
-                callback()
-                return true
-            end
-            if type(UIManager.nextTick) == "function" then
-                local ok, result = pcall(UIManager.nextTick, UIManager, continue_if_current)
-                if ok and result ~= false then return true end
-            end
-            continue_if_current()
-            return true
+            return defer_current(dialog_epoch, "reader settings transition", callback)
         end
 
         local function current_text(field)
@@ -1279,6 +1280,8 @@ local function default_ui()
         if initial_section then show_section(initial_section) else show_root() end
     end
     function adapter:show_gray_settings(model)
+        self.dialog_epoch = self.dialog_epoch + 1
+        local dialog_epoch = self.dialog_epoch
         model = model or { presets = {} }
         local dialog
         local function close()
@@ -1287,11 +1290,7 @@ local function default_ui()
         local function close_then(callback)
             close()
             if type(callback) ~= "function" then return true end
-            if type(UIManager.nextTick) == "function" then
-                local ok, result = pcall(UIManager.nextTick, UIManager, callback)
-                if ok and result ~= false then return true end
-            end
-            return callback()
+            return defer_current(dialog_epoch, "gray settings transition", callback)
         end
         local buttons = {{
             { text = "去灰增强总开关：" .. (model.enabled == true and "开启" or "关闭"),
@@ -1406,6 +1405,8 @@ local function default_ui()
         return true
     end
     function adapter:show_tone_settings(model)
+        self.dialog_epoch = self.dialog_epoch + 1
+        local dialog_epoch = self.dialog_epoch
         model = model or { presets = {} }
         local dialog
         local function close()
@@ -1414,11 +1415,7 @@ local function default_ui()
         local function close_then(callback)
             close()
             if type(callback) ~= "function" then return true end
-            if type(UIManager.nextTick) == "function" then
-                local ok, result = pcall(UIManager.nextTick, UIManager, callback)
-                if ok and result ~= false then return true end
-            end
-            return callback()
+            return defer_current(dialog_epoch, "tone settings transition", callback)
         end
         local buttons = {{
             { text = "亮度与对比度总开关：" .. (model.enabled == true and "开启" or "关闭"),
@@ -1750,15 +1747,34 @@ local function default_ui()
         function Preview:onClose() return close_preview() end
         local widget = Preview:new{}
         local closed = false
+        local disposed = false
+        local function dispose()
+            if disposed then return end
+            disposed = true
+            -- Release ImageWidget's own scaled copies and borrowed viewports
+            -- before the controller releases the two source images.
+            widget:free()
+            if model.on_close then pcall(model.on_close) end
+        end
+        function widget:onCloseWidget()
+            closed = true
+            dispose()
+        end
         close_preview = function()
             if closed then return true end
-            closed = true
             registry:close(widget)
-            if model.on_close then pcall(model.on_close) end
+            closed = true
+            dispose()
             return true
         end
-        registry:show(widget)
-        dependencies.UIManager:setDirty(widget, "full")
+        local shown, err = pcall(function()
+            registry:show(widget)
+            dependencies.UIManager:setDirty(widget, "full")
+        end)
+        if not shown then
+            close_preview()
+            error(err, 0)
+        end
         return { close = close_preview }
     end
     function adapter:show_gray_preview(model)
@@ -2199,7 +2215,7 @@ function UiSettings:new(deps)
     object.native_image_filter = deps.native_image_filter or NativeImageFilter
     object.sample_image_finder = deps.sample_image_finder
         or GrayEnhance.first_image_in_directory
-    object.gray_preview_cleanup = nil
+    object.filter_preview = nil
     if not object.scheduler then
         local ok, manager = pcall(require, "ui/uimanager")
         if ok then object.scheduler = manager end
@@ -2374,12 +2390,11 @@ function UiSettings:close_all()
         self:_invalidate_opds_test()
         self.opds_test_lifecycle = nil
     end
-    self:_release_gray_preview()
     if self.ui and type(self.ui.close_all) == "function" then
         local ok, result = pcall(self.ui.close_all, self.ui)
-        return ok and result ~= false
+        if not ok or result == false then return false end
     end
-    return true
+    return self:_close_filter_preview()
 end
 
 function UiSettings:_run_nodeshare_connection_test(values)
@@ -2976,10 +2991,48 @@ function UiSettings:_notify_reader_saved(values)
     end
 end
 
-function UiSettings:_release_gray_preview()
-    local cleanup = self.gray_preview_cleanup
-    self.gray_preview_cleanup = nil
-    if cleanup then pcall(cleanup) end
+function UiSettings:_close_filter_preview()
+    local preview = self.filter_preview
+    if not preview then return true end
+    local handle = preview.handle
+    if type(handle) == "table" and type(handle.close) == "function" then
+        local ok, result = pcall(handle.close)
+        if not ok or result == false then return false end
+    end
+    preview.dispose()
+    return true
+end
+
+function UiSettings:_publish_filter_preview(show_preview, model, label)
+    local preview = {disposed = false}
+    function preview.dispose()
+        if preview.disposed then return end
+        preview.disposed = true
+        if self.filter_preview == preview then self.filter_preview = nil end
+        local seen = {}
+        for _, buffer in ipairs({model.before_buffer, model.after_buffer}) do
+            if not seen[buffer] and type(buffer.free) == "function" then
+                seen[buffer] = true
+                pcall(buffer.free, buffer)
+            end
+        end
+    end
+    self.filter_preview = preview
+    -- Capture this preview's ownership; a delayed close from a replaced view
+    -- must never free the current view's images.
+    model.on_close = preview.dispose
+    local ok, handle = pcall(show_preview, self.ui, model)
+    if not ok or not handle then
+        preview.dispose()
+        if not ok and self.error_reporter and self.error_reporter.report then
+            self.error_reporter:report(label, handle)
+        else
+            pcall(self.ui.show_info, self.ui, "图像预览界面打开失败，原图未修改。")
+        end
+        return false
+    end
+    preview.handle = handle
+    return not preview.disposed
 end
 
 function UiSettings:_preset_save_result(ok, err)
@@ -3138,7 +3191,7 @@ function UiSettings:show_kopt_preview()
         target_w = math.max(160, math.floor(tonumber(size.w) or 1236))
         target_h = math.max(240, math.floor(tonumber(size.h) or 1648))
     end
-    self:_release_gray_preview()
+    if not self:_close_filter_preview() then return false end
     local rendered, before = pcall(renderer.renderImageFile, renderer,
         first, false, target_w, target_h)
     if not rendered or not before then
@@ -3162,33 +3215,14 @@ function UiSettings:show_kopt_preview()
         self.ui:show_info("KOReader 图像处理预览失败，原图未修改。")
         return false
     end
-    local released = false
-    self.gray_preview_cleanup = function()
-        if released then return end
-        released = true
-        if before.free then pcall(before.free, before) end
-        if after.free then pcall(after.free, after) end
-    end
-    local shown, handle = pcall(self.ui.show_kopt_preview, self.ui, {
+    return self:_publish_filter_preview(self.ui.show_kopt_preview, {
         path = first,
         before_buffer = before,
         after_buffer = after,
         before_label = "调整前",
         after_label = reader.kopt_dithering == true
             and "调整后（抖动在翻页时生效）" or "调整后",
-        on_close = function() self:_release_gray_preview() end,
-    })
-    if not shown or not handle then
-        self:_release_gray_preview()
-        if not shown and self.error_reporter
-            and type(self.error_reporter.report) == "function" then
-            self.error_reporter:report("KOReader 图像处理预览", handle)
-        else
-            pcall(self.ui.show_info, self.ui, "KOReader 图像处理预览界面打开失败。")
-        end
-        return false
-    end
-    return true
+    }, "KOReader 图像处理预览")
 end
 
 function UiSettings:_show_filter_preview(kind)
@@ -3244,7 +3278,7 @@ function UiSettings:_show_filter_preview(kind)
         if not called or not buffer then return nil, called and "empty" or buffer end
         return buffer
     end
-    self:_release_gray_preview()
+    if not self:_close_filter_preview() then return false end
     local before = render()
     if not before then
         self.ui:show_info("样本图片无法解码。")
@@ -3281,20 +3315,10 @@ function UiSettings:_show_filter_preview(kind)
         end
         return false
     end
-    local released = false
-    self.gray_preview_cleanup = function()
-        if released then return end
-        released = true
-        if before and before.free then pcall(before.free, before) end
-        if after and after.free then pcall(after.free, after) end
-    end
-    local handle = show_preview(self.ui, {
+    return self:_publish_filter_preview(show_preview, {
         path = first, preset = preset, before_buffer = before, after_buffer = after,
         before_label = "调整前", after_label = "调整后",
-        on_close = function() self:_release_gray_preview() end,
-    })
-    if not handle then self:_release_gray_preview(); return false end
-    return true
+    }, is_gray and "gray_enhance_preview" or "tone_adjust_preview")
 end
 
 function UiSettings:_show_gray_preview()

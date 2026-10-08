@@ -1,6 +1,6 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.15，2026-10-07 漫画书架封面浏览包**。书架可切换列表/封面，独立保存首图缩略图与浏览索引；漫画书架封面缓存默认200/150/100MB、每10分钟检查。原阅读状态修复保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.16，2026-10-08 设置稳定性修复包**。修复预览图片与窗口的生命周期、旧关闭事件影响新预览和延迟设置切换异常。封面书架及已有漫画功能保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
@@ -8,16 +8,24 @@
 
 正式安装包以 [GitHub Releases 最新版本](https://github.com/bailigebai/webdavmanga.koplugin/releases/latest) 为准。
 
-[下载 v0.4.15 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip.sha256) · [仓库内相同副本](releases/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip)
+[下载 v0.4.16 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.16/webdavmanga.koplugin-v0.4.16-20261008-settings-stability.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.16/webdavmanga.koplugin-v0.4.16-20261008-settings-stability.zip.sha256) · [仓库内相同副本](releases/webdavmanga.koplugin-v0.4.16-20261008-settings-stability.zip)
 
 1. 下载上面的安装 ZIP，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 完全退出 KOReader，备份原插件，再把整个文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
-4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.15`。连接信息在插件的连接设置中填写。
+4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.16`。连接信息在插件的连接设置中填写。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
-qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择正式版 `v0.4.15` 的 ZIP 附件，安装完成后重启 KOReader。
+qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择正式版 `v0.4.16` 的 ZIP 附件，安装完成后重启 KOReader。
+
+## v0.4.16：设置稳定性修复
+
+- 重复打开三类图片预览时，先关闭旧窗口再释放图片；旧窗口关闭事件不会释放新预览。
+- 窗口关闭、显示失败和退出设置时收回对应图片；关闭失败保留可见图片。
+- 延迟设置切换异常在插件内报告；关闭设置和打开新页面后，旧回调不会重开窗口。
+
+[本版改动、验证与验收](docs/releases/v0.4.16.md)。这是针对可复现代码缺口的修复，用户设备本次退出的完整根因仍待日志与真机验收。
 
 ## v0.4.15：漫画书架封面浏览
 
