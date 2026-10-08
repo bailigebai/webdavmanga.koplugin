@@ -1,4 +1,4 @@
-local pixels=dofile(TEST_PLUGIN_ROOT.."/../spec/fixtures/webtoon_buffer.lua")
+local pixels=dofile(assert(TEST_REPO_ROOT).."/spec/fixtures/webtoon_buffer.lua")
 local Zoom=require("webdavmanga.bubble_zoom")
 local checks=0
 local function expect(v,m) checks=checks+1;assert(v,m) end

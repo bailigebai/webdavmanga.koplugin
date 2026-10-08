@@ -1,23 +1,31 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.15，2026-10-07 漫画书架封面浏览包**。书架可切换列表/封面，独立保存首图缩略图与浏览索引；漫画书架封面缓存默认200/150/100MB、每10分钟检查。原阅读状态修复保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.16，2026-10-08 灰度抖动与墨水屏刷新接入，尚未发布**。内置漫画阅读器可选使用 GrayDither 0.3.0 的共享服务，两个开关独立保存、默认关闭；无服务仍按原方式阅读。原漫画书架封面与阅读状态修复保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[接入验证](docs/graydither-integration.md)和[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-正式安装包以 [GitHub Releases 最新版本](https://github.com/bailigebai/webdavmanga.koplugin/releases/latest) 为准。
+当前本地待验收包为 [webdavmanga-0.4.16.zip](dist/webdavmanga-0.4.16.zip)，本次没有发布或安装到设备。已公开的正式安装包以 [GitHub Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases/latest) 为准。
 
-[下载 v0.4.15 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip.sha256) · [仓库内相同副本](releases/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip)
+上一正式版：[v0.4.15 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip.sha256)。
 
-1. 下载上面的安装 ZIP，解压得到 `webdavmanga.koplugin` 文件夹。
+1. 验收本次改动时使用本地 `webdavmanga-0.4.16.zip`，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 完全退出 KOReader，备份原插件，再把整个文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
-4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.15`。连接信息在插件的连接设置中填写。
+4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；安装本地待验收包后在“关于”页确认版本为 `0.4.16`。连接信息在插件的连接设置中填写。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
-qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择正式版 `v0.4.15` 的 ZIP 附件，安装完成后重启 KOReader。
+qiqi 应用商店只提供已公开的正式版本；本次 0.4.16 尚未上传。
+
+## v0.4.16：灰度抖动与墨水屏刷新
+
+先安装并启用 GrayDither 0.3.0 或以上。在正文点画面中间，打开“灰度抖动与墨水屏刷新”；灰度与自动全刷两个开关独立保存，默认关闭。本来源设置不继承原生阅读器或其他漫画来源，缺失、禁用或服务异常仍可正常阅读。
+
+16 级软件 Floyd–Steinberg 处理作用于最终正文显示，不改原图或缓存，不等同硬件 256 级灰度。整页、拆页、适宽、象限、长条连续与分格共用入口。自动全刷开启期间临时暂停原每页全刷和动画，原偏好保留；关闭或服务失效立即恢复。间隔1～50次、默认5次，可选原生或黑白辅助，“立即全刷”先返回正文。
+
+加载、设置、休眠及退出均有会话取消边界；同屏重复绘制和预加载不计数。详细验收见 [v0.4.16 说明](docs/releases/v0.4.16.md)和[可复跑契约](docs/graydither-integration.md)，真实墨水屏与触控效果待设备确认。
 
 ## v0.4.15：漫画书架封面浏览
 
@@ -75,6 +83,8 @@ python -m venv .venv
 .venv\Scripts\python.exe scripts/run_lua_specs.py --all --syntax-root webdavmanga.koplugin
 .venv\Scripts\python.exe scripts/package_plugin.py
 ```
+
+已有象限适屏测试还需把 `KOREADER_FRONTEND` 指向官方 KOReader 的 `frontend` 目录。跨仓库真实灰图与刷新契约：`python scripts/run_graydither_contract.py --gray-root ../graydither`，参数与解压包复验方式见[接入验证](docs/graydither-integration.md)。
 
 Linux/macOS 将 Python 路径改为 `.venv/bin/python`。打包输出在 `dist/`，文件清单、敏感内容、原生库哈希和双次构建一致性会自动校验。`releases/` 保留已交付设备的安装 ZIP；后续源码变更须同步提供新包。
 

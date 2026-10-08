@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 dist/
+.test-output/
 .env
 .env.*
 *.log

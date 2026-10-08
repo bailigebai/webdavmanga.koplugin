@@ -93,7 +93,7 @@ end
 assert(reader:open(context));deliver()
 local shell,session=reader.shell,reader.shell.graydither_session
 expect(getmetatable(session)==Session,"source capability lookup constructs the real shared Session")
-expect(getmetatable(shell.page_image).__index==ImageWidget or shell.page_image.paintTo~=nil,
+expect(getmetatable(shell.page_image).__index==ImageWidget,
     "source shell builds the pinned actual ImageWidget")
 expect(not session.preferences:isEnabled() and not session.refresh_preferences:getEnabled(),
     "both independently stored switches default off")
@@ -108,6 +108,14 @@ expect(BB.tostring(reader.page_buffer)==source_before,"final paint never mutates
 expect(session.ordinal==1 and session.refresher.count==0,"first real successful paint establishes the baseline")
 local duplicate=paint();duplicate:free()
 expect(session.ordinal==1 and session.refresher.count==0,"same-token redraw never increments")
+reader:onTwoFingerTap(shell,{pos={x=2,y=2}})
+expect(session.ordinal==1,"actual quadrant publication alone never counts")
+local quadrant=paint();assert_gray(quadrant);quadrant:free()
+expect(session.ordinal==2 and session.refresher.count==1,"actual final best-fit quadrant paint is a new screen")
+reader:onTwoFingerTap(shell,{pos={x=2,y=2}})
+session:settingsChanged()
+local whole_baseline=paint();whole_baseline:free()
+expect(session.ordinal==1 and session.refresher.count==0,"settings change resets the ordinary body baseline after quadrant return")
 reader:next_page()
 expect(reader.pending_request and session.paused and session.preserve_progress,
     "source loading cancels pending work and preserves the successful token")
@@ -206,6 +214,12 @@ expect(session.closed and shell.current_model.refresh_type=="full" and UI.dirty[
 shell:open_graydither_session();session=shell.graydither_session
 expect(session and not session.closed,"a fresh reading session can obtain the enabled shared capability again")
 shell:show_page(frame.buffer,frame.viewport,nil,{refresh_type="full",reading_token=frame.reading_token})
+session.attachImage=function() error("synthetic optional animation service failure") end
+expect(shell:show_page(frame.buffer,frame.viewport,nil,{refresh_type="partial",animate=true,
+    reading_token=frame.reading_token..":animation-fallback"}),"optional failure still publishes an animated source page")
+expect(session.closed and shell.current_model.native_animation,"native animation restores in the same frame as failed attachment")
+shell:open_graydither_session();session=shell.graydither_session
+shell:show_page(frame.buffer,frame.viewport,nil,{refresh_type="partial",reading_token=frame.reading_token})
 session.refresh_preferences:setEnabled(true);session.refresh_preferences:setMode("flash")
 session.refresh_preferences:setHold(.1);session:settingsChanged()
 local baseline=paint();baseline:free()
@@ -224,4 +238,38 @@ expect(session.closed and not session.refresher.layer and not session.refresher.
 local frames=#UI.frames;UI:advance(1)
 expect(#UI.frames==frames,"retired session cannot paint a delayed white phase")
 expect(not shell.graydither_session and not session:isRefreshManaged(),"close releases source refresh ownership")
+
+-- Real Webtoon next()/previous() bypass Reader:_request_webtoon. Its load
+-- boundary must also preserve counters while the old painted frame remains.
+local strip_settings=settings:get_reader()
+strip_settings.fit_mode="webtoon";strip_settings.webtoon_overlap_percent=0
+strip_settings.webtoon_smart_enabled=false
+assert(settings:set_reader(strip_settings))
+assert(reader:open(context));deliver()
+shell,session=reader.shell,reader.shell.graydither_session
+session.refresh_preferences:setInterval(50)
+session:settingsChanged()
+local strip_first=paint();assert_gray(strip_first);strip_first:free()
+local strip_token=session.last_token
+reader:next_page()
+expect(reader.webtoon_session.busy and session.paused and session.preserve_progress,
+    "actual next-screen strip load pauses the shared session despite retaining a page model")
+expect(session.last_token==strip_token and session.refresher.count==0,"slow strip load preserves first painted baseline")
+deliver()
+local strip_second=paint();assert_gray(strip_second);strip_second:free()
+expect(session.ordinal==2 and session.refresher.count==1,"successful strip display counts once after delayed load")
+strip_token=session.last_token
+expect(session:requestRefresh(),"strip body can have a pending manual refresh")
+reader:next_page()
+expect(session.paused and not session.refresher.busy and not session.refresher.task,
+    "an uncached physical strip image cancels queued refresh at the actual load entry")
+expect(session.last_token==strip_token and session.refresher.count==1,"strip cancellation retains successful screen progress")
+local waiting=paint();assert_gray(waiting);waiting:free()
+expect(session.last_token==strip_token and session.refresher.count==1,"retained old strip body cannot count while loading")
+deliver()
+local strip_third=paint();assert_gray(strip_third);strip_third:free()
+expect(session.ordinal==3 and session.refresher.count==2,"third strip screen preserves accumulated count")
+reader.webtoon_session.at_end=true;reader.webtoon_session.end_count=#entries
+expect(reader.webtoon_session:next()==false and not session.paused,"a strip end boundary with no render never leaves a paused service")
+reader:force_close("strip contract")
 print(("graydither_reader_contract: %d checks passed"):format(checks))

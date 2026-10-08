@@ -1,4 +1,10 @@
-WebDAV Manga for KOReader - version 0.4.15
+WebDAV Manga for KOReader - version 0.4.16
+
+Version 0.4.16 optionally consumes GrayDither 0.3.0's public image-session
+service for final body-image Floyd-Steinberg dithering and ink-screen refresh.
+No GrayDither algorithm or refresh implementation is copied into this plugin.
+Both source-owned switches default off. Software 16-level dithering does not
+provide hardware 256-level grayscale. Actual device acceptance remains pending.
 
 The 2026-10-02 hold-zoom build independently extends the existing quadrant
 viewport with native two-finger hold/release handling and a contact-lifetime

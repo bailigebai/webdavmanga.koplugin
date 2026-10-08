@@ -54,6 +54,7 @@ def new_runtime(plugin_root: Path = PLUGIN_ROOT) -> LuaRuntime:
         % (module_root, module_root, smart_ambient_root, smart_ambient_root)
     )
     lua.globals().TEST_PLUGIN_ROOT = plugin_root.resolve().as_posix()
+    lua.globals().TEST_REPO_ROOT = ROOT.as_posix()
     return lua
 
 

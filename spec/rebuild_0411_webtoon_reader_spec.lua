@@ -1,4 +1,4 @@
-local pixels = dofile(TEST_PLUGIN_ROOT .. "/../spec/fixtures/webtoon_buffer.lua")
+local pixels = dofile(assert(TEST_REPO_ROOT) .. "/spec/fixtures/webtoon_buffer.lua")
 package.loaded["ffi/blitbuffer"] = pixels.bb
 local Reader = require("webdavmanga.ui_reader")
 local State = require("webdavmanga.state")

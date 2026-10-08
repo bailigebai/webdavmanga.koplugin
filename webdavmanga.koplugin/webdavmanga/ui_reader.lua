@@ -1326,6 +1326,7 @@ function Reader:_request_webtoon(index, fraction)
                 return buffer:scale(w, h)
             end,
             load = function(target, ready, failed)
+                if type(self.shell._graydither_call) == "function" then self.shell:_graydither_call("pause", true) end
                 local image = self:_image(target)
                 local memory_source = self:_page_source(image)
                 local callbacks = {
