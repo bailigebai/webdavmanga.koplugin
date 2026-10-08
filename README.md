@@ -1,23 +1,23 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.16，2026-10-08 灰度抖动与墨水屏刷新接入，尚未发布**。内置漫画阅读器可选使用 GrayDither 0.3.0 的共享服务，两个开关独立保存、默认关闭；无服务仍按原方式阅读。原漫画书架封面与阅读状态修复保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[接入验证](docs/graydither-integration.md)和[验证记录](docs/verification.md)。
+当前源码：**0.4.16，2026-10-08 灰度抖动与墨水屏刷新设备测试版**。内置漫画阅读器可选使用 GrayDither 0.3.0 的共享服务，两个开关独立保存、默认关闭；无服务仍按原方式阅读。原漫画书架封面与阅读状态修复保留。使用说明见[插件说明](webdavmanga.koplugin/README.md)，验收证据见[接入验证](docs/graydither-integration.md)和[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-当前本地待验收包为 [webdavmanga-0.4.16.zip](dist/webdavmanga-0.4.16.zip)，本次没有发布或安装到设备。已公开的正式安装包以 [GitHub Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases/latest) 为准。
+本版是**设备测试版**：电脑回归已通过，Kindle 触控、实际全刷波形、残影与性能仍需真机验收。安装包和校验文件见 [v0.4.16 Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.16)。
 
-上一正式版：[v0.4.15 安装 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.15/webdavmanga.koplugin-v0.4.15-20261007-bookshelf-covers.zip.sha256)。
+[下载 v0.4.16 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.16/webdavmanga-0.4.16.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.16/webdavmanga-0.4.16.zip.sha256)。其他版本见 [GitHub Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases)。
 
-1. 验收本次改动时使用本地 `webdavmanga-0.4.16.zip`，解压得到 `webdavmanga.koplugin` 文件夹。
+1. 下载 `webdavmanga-0.4.16.zip`，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 完全退出 KOReader，备份原插件，再把整个文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
-4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；安装本地待验收包后在“关于”页确认版本为 `0.4.16`。连接信息在插件的连接设置中填写。
+4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.16`。连接信息在插件的连接设置中填写。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
-qiqi 应用商店只提供已公开的正式版本；本次 0.4.16 尚未上传。
+qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择 `v0.4.16` 的 ZIP 附件，安装完成后重启 KOReader。可见版本以项目列表同步结果为准。
 
 ## v0.4.16：灰度抖动与墨水屏刷新
 

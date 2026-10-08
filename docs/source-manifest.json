@@ -4,9 +4,8 @@
   "history": "New repository imported from a source snapshot; old Git history unavailable.",
   "package": {
     "path": "dist/webdavmanga-0.4.16.zip",
-    "sha256": "90d018ef5989fa01fcffe4064be7f69f163e11e2912b157a1b61e3a71621522c",
-    "files": 124,
-    "published": false
+    "sha256": "ce7d437627905f0f22cb49b7f60593631fc527aa448dfdfd0fa92101599fe307",
+    "files": 124
   },
   "plugin_files": [
     {
@@ -46,8 +45,8 @@
     },
     {
       "path": "webdavmanga.koplugin/README.md",
-      "bytes": 85422,
-      "sha256": "9beb94ae1da8a3472aae0326ac5c1f15c924a9c2e793c341f2456f64246e6499"
+      "bytes": 85494,
+      "sha256": "3c1fbb1d5fc80d660ce5ff23215ebae884eec9a8491b40f784aa2e5d461e1066"
     },
     {
       "path": "webdavmanga.koplugin/resources/format_samples/baseline.jpg",
