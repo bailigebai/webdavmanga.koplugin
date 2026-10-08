@@ -96,7 +96,12 @@ function PanelSession:_publish(index, buffer,options)
     self.pending = pending
     local callback = self.callbacks and self.callbacks.on_panel
     local ok, accepted = false, false
-    if callback then ok, accepted = pcall(callback, buffer, self.panels[index], index, #self.panels) end
+    if callback then
+        -- These options have already rendered this allocation. The committed
+        -- render_options below still belongs to the previous visible camera.
+        ok, accepted = pcall(callback, buffer, self.panels[index], index, #self.panels,
+            options or self.render_options)
+    end
     if self.token ~= token then
         release(pending.buffer, "free"); pending.buffer = nil
         return false

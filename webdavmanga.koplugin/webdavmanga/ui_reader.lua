@@ -892,6 +892,7 @@ function Reader:_display_segment(segment, checkpoint, page_change)
     if not viewport then return false, viewport_error end
     page_change = copy_table(page_change)
     page_change.reader_generation = self.generation
+    page_change.reading_token = self:_reading_token(segment)
     local fit_whole_page = self.panel_entry and self.panel_entry.whole_page
     page_change.display_scale = (fit_whole_page or (self.quadrant_zoom and not self.panel_entry
         and not self.panel_session)) and 0 or 1
@@ -1224,6 +1225,9 @@ function Reader:open(context)
     end
     self.shell = shell_or_error
     self.viewer = self.shell.viewer
+    if type(self.shell.open_graydither_session) == "function" then
+        self.shell:open_graydither_session()
+    end
     local shown = self:_show_shell(self.shell)
     if not shown then
         self:force_close("open_failed")
@@ -1363,7 +1367,10 @@ function Reader:_request_webtoon(index, fraction)
         }
         self.webtoon_session = session
     end
-    if not session.busy then self.webtoon_request = {index=index,fraction=fraction} end
+    if not session.busy then
+        self.webtoon_request = {index=index,fraction=fraction}
+        if type(self.shell._graydither_call) == "function" then self.shell:_graydither_call("pause", true) end
+    end
     return session:seek(index,fraction)
 end
 
@@ -1404,6 +1411,7 @@ function Reader:request_page(index, wanted_segment)
     self.request_serial = self.request_serial + 1
     local serial, generation = self.request_serial, self.generation
     self.pending_request = { index = target, segment = wanted_segment, serial = serial }
+    if type(self.shell._graydither_call) == "function" then self.shell:_graydither_call("pause", true) end
     if not self.page_buffer then
         self:_silent("show_reader_loading", function()
             return self.shell:show_loading(("正在加载第 %d / %d 张…"):format(target, self:_count()))
@@ -1828,9 +1836,12 @@ function Reader:onBubbleHoldPan(source_shell)
         and source_shell.bubble_hold_consumed == true
 end
 
-function Reader:_show_panel(buffer, _panel, index, count)
+function Reader:_show_panel(buffer, _panel, index, count, render_options)
     if self.closing or not self.shell or not self.position then return false end
-    local shown = self.shell:show_page(buffer, buffer, nil, { refresh_type = "partial" },
+    render_options = render_options or (self.panel_session and self.panel_session.render_options)
+    local shown = self.shell:show_page(buffer, buffer, nil, {
+        refresh_type = "partial", reading_token = self:_reading_token("panel", index, render_options),
+    },
         (self.position.index - 1 + index / count) / self:_count(),
         self.show_progress_bar, self.progress_bar_thickness,
         self.reader_settings.kopt_filter_enabled == true and self.reader_settings.kopt_dithering == true)
@@ -1897,9 +1908,9 @@ function Reader:enter_panel_mode(desired)
         show_adjacent = self.reader_settings.panel_show_adjacent ~= false,
         experimental = self.reader_settings.panel_experimental_sort == true,
     }, {
-        on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count)
+        on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count, render_options)
             if not active() then return false end
-            return self:_show_panel(buffer, panel, index, count)
+            return self:_show_panel(buffer, panel, index, count, render_options)
         end, false),
         on_boundary = self:_callback("cross dynamic panel page", function(delta)
             if not active() then return false end
@@ -2026,6 +2037,22 @@ function Reader:close_controls()
     return self:_display_segment(self.position.segment or "whole", false, {
         refresh_type = "partial",
     })
+end
+
+function Reader:_reading_token(segment, panel_index, camera)
+    local position = self.position or {}
+    camera = camera or {}
+    return table.concat({tostring(self.generation), tostring(position.index),
+        tostring(segment or position.segment), tostring(self.fit_mode), tostring(self.pan_y or 0),
+        tostring(self.webtoon_fraction or 0), tostring(self.quadrant_zoom or "whole"),
+        tostring(panel_index or 0), tostring(camera.view or ""), tostring(camera.rotation or 0),
+        tostring(camera.pan_x or 0), tostring(camera.pan_y or 0), tostring(camera.zoom or 1)}, ":")
+end
+
+function Reader:show_graydither_settings()
+    if not self.shell or type(self.shell.show_graydither_menu) ~= "function" then return false end
+    if not self:close_controls() then return false end
+    return self.shell:show_graydither_menu(function() return self:close_controls() end)
 end
 
 function Reader:onSwipe(_, gesture)
@@ -2858,6 +2885,9 @@ function Reader:toggle_controls(section)
             action("亮度与对比度", "open tone adjustment settings", function()
                 return show_section("tone")
             end),
+            action("灰度抖动与墨水屏刷新", "open gray dithering settings", function()
+                return self:show_graydither_settings()
+            end),
             action("跳转图片", "open page picker", function()
                 return self:show_page_picker()
             end),
@@ -2985,6 +3015,9 @@ function Reader:force_close(source)
         return true
     end
     self.closing = true
+    if self.shell and type(self.shell.close_graydither_session) == "function" then
+        self.shell:close_graydither_session()
+    end
     self:_close_webtoon()
     local close_control = { suppress_return = teardown_source }
     self.close_control = close_control
