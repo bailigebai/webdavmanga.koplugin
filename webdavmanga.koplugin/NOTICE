@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.17
+WebDAV Manga for KOReader - version 0.4.18
 
 Version 0.4.16 optionally consumes GrayDither 0.3.0's public image-session
 service for final body-image Floyd-Steinberg dithering and ink-screen refresh.

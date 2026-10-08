@@ -278,11 +278,14 @@ function Cache:unprotect(key)
 end
 
 function Cache:_part_size(part)
-    local size=tonumber(self.fs.size(part)) or 0
+    -- Consume only the size; filesystem errors may also return an error string.
+    local part_size = self.fs.size(part)
+    local size=tonumber(part_size) or 0
     if self.unified_quota and self.fs.list then
         each_file(self.fs,self.root,function(entry)
             if entry.path and entry.path:sub(1,#part+5)==part..".wdm-" then
-                size=size+(tonumber(self.fs.size(entry.path)) or tonumber(entry.size) or 0)
+                local entry_size = self.fs.size(entry.path)
+                size=size+(tonumber(entry_size) or tonumber(entry.size) or 0)
             end
         end)
     end
@@ -496,7 +499,8 @@ function Cache:lookup_record(key)
         return nil
     end
     if record.kind == "document" and type(self.fs.size) == "function" then
-        local actual_size = tonumber(self.fs.size(record.path))
+        local file_size = self.fs.size(record.path)
+        local actual_size = tonumber(file_size)
         if actual_size and actual_size ~= record.size then
             self:_forget(key, true)
             self:_flush()
@@ -726,7 +730,8 @@ function Cache:publish(record, part_path)
         self.fs.remove(part_path)
         return nil, "invalid_kind"
     end
-    local actual_size = tonumber(self.fs.size(part_path)) or tonumber(record.size) or 0
+    local part_size = self.fs.size(part_path)
+    local actual_size = tonumber(part_size) or tonumber(record.size) or 0
     if not is_positive_integer(actual_size) then return nil, "empty_part" end
     local extension = safe_extension(record.extension)
     if record.extension_mismatch == true then

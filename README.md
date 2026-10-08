@@ -1,23 +1,30 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.17，2026-10-08 设置稳定性修复设备测试版**。修复图片预览的窗口与内存生命周期，以及设置延迟切换的异常和过期回调。保留已发布的 GrayDither 可选接入，两个开关独立保存、默认关闭。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.18，2026-10-08 书架缓存文件大小修复，设备测试版**。修复真实设备日志中漫画书架 E0003 及定期缓存清理的同源退出；包含 0.4.17 设置稳定性修复。刷新次数弹窗被遮挡还需更新 GrayDither 0.3.1；本版提供两个组件的完整修复套装。两个开关独立保存、默认关闭。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
 ## 安装
 
-本版是**设备测试版**：设置专项与运行语法检查已通过，完整回归结果见验证记录，Kindle 触控、实际全刷波形、残影与性能仍需真机验收。安装包和校验文件见 [v0.4.17 Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.17)。
+本版是**设备测试版，尚未安装设备验收**。完整回归结果见验证记录；Kindle 书架与清理操作、触控、墨水屏和性能仍需真机验收。
 
-[下载 v0.4.17 ZIP](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.17/webdavmanga.koplugin-v0.4.17-20261008-settings-stability.zip) · [SHA-256 校验文件](https://github.com/bailigebai/webdavmanga.koplugin/releases/download/v0.4.17/webdavmanga.koplugin-v0.4.17-20261008-settings-stability.zip.sha256)。其他版本见 [GitHub Releases](https://github.com/bailigebai/webdavmanga.koplugin/releases)。
+请在 [v0.4.18 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.18) 下载 `webdavmanga-repair-0.4.18-graydither-0.3.1.zip` 与同名 `.sha256`。完整套装包含 WebDAV Manga 0.4.18 和 GrayDither 0.3.1。单独 WebDAV 安装包仍提供，但不能替代 GrayDither 的数字框修复。
 
-1. 下载 `webdavmanga.koplugin-v0.4.17-20261008-settings-stability.zip`，解压得到 `webdavmanga.koplugin` 文件夹。
-2. 完全退出 KOReader，备份原插件，再把整个文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
+1. 解压完整修复套装，得到 `webdavmanga.koplugin` 和 `graydither.koplugin` 两个文件夹。
+2. 完全退出 KOReader，备份原插件，再把两个完整文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
-4. 完全重启 KOReader，打开主菜单 **WebDAV 漫画 → 漫画书架**；在“关于”页确认版本为 `0.4.17`。连接信息在插件的连接设置中填写。
+4. 完全重启 KOReader，确认 WebDAV Manga `0.4.18` 和 GrayDither `0.3.1` 均已启用，再打开主菜单 **WebDAV 漫画 → 漫画书架**。连接信息在插件的连接设置中填写。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
-qiqi 应用商店：联网刷新项目列表，打开 `bailigebai/webdavmanga.koplugin`，选择 `v0.4.17` 的 ZIP 附件，安装完成后重启 KOReader。可见版本以项目列表同步结果为准。
+qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更新后完全退出并重启 KOReader。
+
+## v0.4.18：书架缓存文件大小修复
+
+- 文件系统获取大小失败的错误文本不再作为数字转换的第二参数，修复设备日志已确认的 E0003 和同源缓存清理退出。
+- 四处消费只取第一个返回值；保留未创建临时文件计为 0、目录记录退回与现有文档/发布规则。
+
+[本版改动、验证与验收](docs/releases/v0.4.18.md)。本次只处理已确认的 WebDAV 根因，实际设备复测尚未完成。
 
 ## v0.4.17：设置稳定性修复
 

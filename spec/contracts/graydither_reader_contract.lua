@@ -100,6 +100,26 @@ expect(not session.preferences:isEnabled() and not session.refresh_preferences:g
 local plain=paint()
 expect(plain:getPixel(0,0):getColor8().a==52,"default-off preserves original pixel")
 plain:free()
+-- The source entry must use the corrected shared controls, including the
+-- numeric window and stale callbacks after returning to the reading body.
+expect(reader:show_graydither_settings(),"WebDAV source opens the real shared settings")
+expect(session.menu.modal==false,"shared settings allow native number dialogs above them")
+session.menu.buttons[2][1].callback()
+session.menu.buttons[3][1].callback()
+local number_dialog=UI:getTopmostVisibleWidget()
+expect(number_dialog.title_text=="自动全刷间隔" and number_dialog~=session.menu,
+    "interval adjustment is the visible active child")
+number_dialog.value=4;number_dialog.callback(number_dialog);UI:close(number_dialog)
+expect(settings:get_reader().graydither_refresh_interval==4,
+    "changing the actual interval dialog persists in WebDAV preferences")
+local retired_menu=session.menu
+local retired_callback=retired_menu.buttons[2][1].callback
+retired_menu.buttons[#retired_menu.buttons][1].callback()
+expect(not session.menu and UI:getTopmostVisibleWidget()==shell.widget and not session.paused,
+    "return from shared controls restores the WebDAV reading body")
+retired_callback()
+expect(not session.menu and UI:getTopmostVisibleWidget()==shell.widget,
+    "retired WebDAV settings callbacks cannot reopen windows")
 session.preferences:setGlobal(true);session.refresh_preferences:setEnabled(true)
 session.refresh_preferences:setInterval(2);session:settingsChanged()
 local source_before=BB.tostring(reader.page_buffer)
