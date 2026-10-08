@@ -1,3 +1,5 @@
+-- Historical version/bundle contract superseded by 0.4.16. Its functional
+-- bookshelf, cache and reader suites remain selected by --all.
 local checks=0;local function expect(v,m) checks=checks+1;assert(v,m) end
 local root=assert(TEST_PLUGIN_ROOT)
 local function read(path) local f=assert(io.open(root.."/"..path,"rb"));local b=f:read("*a");f:close();return b end

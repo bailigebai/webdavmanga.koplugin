@@ -1,5 +1,6 @@
 local DialogKeyboard = require("webdavmanga.dialog_keyboard")
 local BubbleZoom = require("webdavmanga.bubble_zoom")
+local GrayDitherBridge = require("webdavmanga.graydither_bridge")
 
 local ReaderShell = {}
 ReaderShell.__index = ReaderShell
@@ -175,6 +176,7 @@ local function production_widget(shell, dependencies)
             -- area: split and tall-page quadrants need not share its aspect.
             scale_factor = model.display_scale or 1,
         }
+        shell:_graydither_call("attachImage", image, model.reading_token)
         return dependencies.FrameContainer:new{
             width = width,
             height = height,
@@ -524,6 +526,8 @@ local function production_widget(shell, dependencies)
     end
 
     function ReaderWidget:onSuspend()
+        shell.graydither_suspended = true
+        shell:_graydither_call("pause")
         shell.bubble_hold_consumed = nil
         shell:close_bubble_zoom()
         invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
@@ -531,9 +535,34 @@ local function production_widget(shell, dependencies)
     end
 
     function ReaderWidget:onResume()
+        shell.graydither_suspended = false
+        if shell.current_model and shell.current_model.kind == "page" then
+            shell:_graydither_call("resume")
+        end
         shell.bubble_hold_consumed = nil
         shell:close_bubble_zoom()
         invoke_owner(shell.owner,"onTwoFingerHoldRelease",shell)
+        return false
+    end
+
+    function ReaderWidget:onRequestSuspend()
+        shell.graydither_suspended = true
+        shell:_graydither_call("pause")
+        return false
+    end
+
+    function ReaderWidget:onSetRotationMode()
+        shell:_graydither_call("reset")
+        return false
+    end
+
+    function ReaderWidget:onSetDimensions()
+        shell:_graydither_call("reset")
+        return false
+    end
+
+    function ReaderWidget:onScreenResize()
+        shell:_graydither_call("reset")
         return false
     end
 
@@ -589,6 +618,11 @@ local function production_widget(shell, dependencies)
     function ReaderWidget:onClose()
         if shell.closed then return true end
         return call_owner(shell, "back")
+    end
+
+    function ReaderWidget:onCloseWidget()
+        shell.graydither_owner_closed = true
+        shell:close_graydither_session()
     end
 
     return ReaderWidget:new{}
@@ -702,6 +736,9 @@ function ReaderShell:_publish(model)
     local bubble = self.bubble_zoom
     self.bubble_zoom = nil
     local previous = self.current_model
+    if model.kind ~= "page" then
+        self:_graydither_call("pause", model.kind == "loading" or model.kind == "error")
+    end
     local previous_token = self.status_token
     if model ~= previous then self.status_token = self.status_token + 1 end
     self.current_model = model
@@ -710,6 +747,11 @@ function ReaderShell:_publish(model)
         if not ok then
             self.current_model, self.bubble_zoom = previous, bubble
             self.status_token = previous_token
+            if previous and previous.kind == "page" and not self.graydither_suspended then
+                self:_graydither_call("resume")
+            else
+                self:_graydither_call("pause", previous and (previous.kind == "loading" or previous.kind == "error"))
+            end
             error(err, 0)
         end
     end
@@ -827,6 +869,9 @@ end
 function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
     show_progress, progress_bar_thickness)
     page_change = type(page_change) == "table" and page_change or {}
+    if not self.graydither_suspended then
+        self:_graydither_call("resume")
+    end
     if progress ~= nil then
         self.progress = math.max(0, math.min(1, tonumber(progress) or 0))
     end
@@ -835,11 +880,14 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
     if refresh_type ~= "full" and refresh_type ~= "partial" then
         refresh_type = "partial"
     end
+    local requested_refresh_type = refresh_type
+    local managed = self:is_graydither_refresh_managed()
+    if managed then refresh_type = "partial" end
     local native_animation = false
-    if refresh_type ~= "full" and page_change.animate == true then
+    if refresh_type ~= "full" and page_change.animate == true and not managed then
         native_animation = self:_arm_native_animation(page_change.forward)
     end
-    return self:_publish{
+    local model = {
         kind = "page",
         title = title,
         buffer = buffer,
@@ -847,6 +895,7 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
         display_scale = page_change.display_scale == 0 and 0 or 1,
         background = page_change.background == "black" and "black" or "white",
         reader_generation = page_change.reader_generation,
+        reading_token = page_change.reading_token,
         progress = self.progress,
         show_progress = self.show_progress,
         progress_bar_thickness = math.max(1, math.min(4,
@@ -855,6 +904,18 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
         native_animation = native_animation,
         animation_forward = page_change.forward ~= false,
     }
+    local shown = self:_publish(model)
+    -- Attaching the new body may retire an unavailable optional service.
+    -- Re-establish the source policy before the queued screen repaint occurs.
+    if shown and managed and not self:is_graydither_refresh_managed() then
+        model.refresh_type = requested_refresh_type
+        model.native_animation = requested_refresh_type ~= "full" and page_change.animate == true
+            and self:_arm_native_animation(page_change.forward) or false
+        if self.ui_manager and type(self.ui_manager.setDirty) == "function" then
+            self.ui_manager:setDirty(self.widget, model.refresh_type)
+        end
+    end
+    return shown
 end
 
 function ReaderShell:show_panel_zoom(model)
@@ -1137,6 +1198,7 @@ function ReaderShell:start_quadrant_hold_watch(hold)
 end
 
 function ReaderShell:close_now()
+    self:close_graydither_session()
     self:stop_quadrant_hold_watch()
     if self.closed then return true end
     self.closed = true
@@ -1155,6 +1217,47 @@ function ReaderShell:close_now()
     end
     if bubble then self:free_buffer_later(bubble.buffer) end
     return true
+end
+
+function ReaderShell:open_graydither_session()
+    self:close_graydither_session()
+    if self.closed or self.graydither_owner_closed then return nil end
+    local ok, session = pcall(GrayDitherBridge.create, self.owner, self)
+    if ok then self.graydither_session = session end
+    return self.graydither_session
+end
+
+function ReaderShell:close_graydither_session()
+    local session = self.graydither_session
+    self.graydither_session = nil
+    if session then pcall(session.close, session) end
+end
+
+function ReaderShell:_graydither_call(method, ...)
+    local session = self.graydither_session
+    if not session then return nil end
+    if session.closed then
+        self:close_graydither_session()
+        return nil
+    end
+    local ok, result = pcall(session[method], session, ...)
+    if ok then return result end
+    self.graydither_error = "灰度抖动服务暂不可用，已恢复原阅读方式。"
+    self:close_graydither_session()
+    return nil
+end
+
+function ReaderShell:is_graydither_refresh_managed()
+    return self:_graydither_call("isRefreshManaged") == true
+end
+
+function ReaderShell:show_graydither_menu(return_to_reading)
+    if self.graydither_session and self.graydither_session.closed then self:close_graydither_session() end
+    if not self.graydither_session then
+        self:show_status(self.graydither_error or "请安装并启用灰度抖动插件后使用此设置。", 3)
+        return false
+    end
+    return self:_graydither_call("showMenu", return_to_reading) == true
 end
 
 return ReaderShell

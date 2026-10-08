@@ -49,6 +49,8 @@ local DEFAULT_READER = {
     show_progress_bar = true,
     progress_bar_thickness = 1,
     full_refresh_each_page = false,
+    graydither_enabled = false,
+    graydither_refresh_enabled = false,
     auto_crop_enabled = false,
     auto_crop_threshold = 242,
     auto_crop_max_percent = 15,
@@ -704,6 +706,10 @@ function Settings:set_reader(values)
         or values.prefetch_near_count ~= nil
         or values.prefetch_far_count ~= nil
     local reader = with_defaults(self:get_reader(), values)
+    if type(reader.graydither_enabled) ~= "boolean"
+        or type(reader.graydither_refresh_enabled) ~= "boolean" then
+        return nil, "invalid_graydither_settings"
+    end
     reader.hide_status_bar = nil
     if type(reader.opds_pointer_root) ~= "string" or trim(reader.opds_pointer_root) == ""
         or reader.opds_pointer_root:find("[%z\1-\31\127]")
@@ -860,7 +866,9 @@ function Settings:set_reader(values)
     if type(reader.animation_enabled) ~= "boolean" then
         return nil, "invalid_animation_enabled"
     end
-    self.store:saveSetting("reader", copy_table(reader))
+    if self.store:saveSetting("reader", copy_table(reader)) == false then
+        return nil, "reader_settings_write_failed"
+    end
     return true
 end
 
