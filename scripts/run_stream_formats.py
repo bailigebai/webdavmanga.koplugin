@@ -88,6 +88,19 @@ def main() -> None:
             report["cases"] = json.loads((output / "native-results.json").read_text(encoding="utf-8"))
             for case in report["cases"]:
                 case["source_sha256"] = hashes[case["label"]]
+                cover_name = case["bookshelf"].pop("image")
+                if Path(cover_name).name != cover_name:
+                    raise ValueError("Invalid shelf cover filename")
+                with Image.open(output / cover_name) as cover:
+                    cover.load()
+                    if cover.width <= 0 or cover.height <= 0:
+                        raise ValueError("Empty shelf cover")
+                    with Image.open(output / (case["label"] + "-cold-1.image")) as first_page:
+                        first_page.load()
+                        if cover.size != first_page.size or cover.convert("RGB").tobytes() != first_page.convert("RGB").tobytes():
+                            raise ValueError("Shelf cover differs from first reading page")
+                case["bookshelf"]["decoded_images"] = 1
+                case["bookshelf"]["first_page_matches_reading"] = True
                 for result in case["rounds"].values():
                     names = result.pop("images")
                     if len(names) != len(result["positions"]) or len(set(names)) != len(names):
@@ -116,7 +129,7 @@ def main() -> None:
         report["checked_at"] = datetime.now(timezone.utc).isoformat()
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_bytes((json.dumps(report, indent=2) + "\n").encode())
-    print("PASS: seven originals; cold/warm cache; EPUB legacy catalog; real ARM parsers and cached image decode")
+    print("PASS: seven originals; cold/warm stream and bookshelf first pages; EPUB legacy catalog; ARM parsers and full pixel decode")
 
 
 if __name__ == "__main__":

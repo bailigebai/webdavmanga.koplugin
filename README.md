@@ -1,6 +1,6 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.19，2026-10-09 流式目录缓存修复，设备测试版**。修复旧 EPUB 目录缓存中的重复封面路径造成的 stream_failed；交付前强制执行七份原文件的 ARM 流式检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.20，2026-10-09 漫画书架背景与文档封面，设备测试版**。进入与返回期间保留插件背景，补齐常见漫画文件首图封面；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
@@ -8,16 +8,24 @@
 
 本版是**设备测试版，尚未安装设备验收**。完整回归结果见验证记录；Kindle 书架与清理操作、触控、墨水屏和性能仍需真机验收。
 
-请在 [v0.4.19 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.19) 下载 `webdavmanga.koplugin-v0.4.19-20261009-stream-cache-fix.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
+请在 [v0.4.20 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.20) 下载 `webdavmanga.koplugin-v0.4.20-20261009-bookshelf-document-covers.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
 
 1. 完全退出 KOReader，备份原插件，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 将完整文件夹复制至 `koreader/plugins/`，覆盖插件程序文件。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录。
-4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.19`，打开测试目录逐个验证七份原文件。
+4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.20`，打开测试目录逐个验证七份原文件。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
 qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更新后完全退出并重启 KOReader。
+
+## v0.4.20：漫画书架背景与文档封面
+
+- 进入、返回及异步目录等待始终保留插件背景，退出后旧请求不能重开窗口。
+- 图片优先，文档第一页次之，再查下一层；文档目录显示各本书的封面卡片，支持常见漫画归档、EPUB、MOBI/AZW/AZW3 与图片 PDF。
+- 独立缓存与容量策略继续生效，正文流式及书架首图均通过原文件交付检查后才打包。
+
+[本版改动、验证与验收](docs/releases/v0.4.20.md)。复杂远程 PDF 仍受设备能力限制；真实 Kindle 触摸与刷新需验收。
 
 ## v0.4.19：流式目录缓存修复
 

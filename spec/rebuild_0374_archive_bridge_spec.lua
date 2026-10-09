@@ -608,6 +608,7 @@ expect(resolved and resolved.archive_entry_name == "001.jpg" and resolved.archiv
     "archive history cover must pass cover validation with extraction metadata")
 
 local shown
+package.preload["webdavmanga.ui_background"]=function() return {new=function(model) return model end} end
 for _, module in ipairs({ "ui/widget/confirmbox", "ui/widget/infomessage", "ui/widget/menu" }) do
     package.preload[module] = function() return { new = function(_, model) return model end } end
 end

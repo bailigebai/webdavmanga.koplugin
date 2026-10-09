@@ -57,6 +57,15 @@ local invalidated
 browser.directory_store.invalidate_subtree=function(_,p) invalidated=p end
 browser:show_library(true,"/m/A")
 expect(invalidated=="/m/A","shelf refresh invalidates independent reader manifests")
+bs.lookup=function() return nil end
+local documents={{name="chapter.epub",path="/m/A/chapter.epub",size=123,is_file=true,etag="v1"}}
+dirs["/m/A"].images=function() return index({}) end
+dirs["/m/A"].documents=function() return index(documents) end
+browser:show_library(false,"/m/A")
+expect(#grid.model.items==1 and grid.model.items[1].manga.path==documents[1].path
+    and grid.model.items[1].manga.is_file,"document-only folders show individual book covers")
+expect(grid.model.items[1].manga.size==123 and grid.model.items[1].manga.etag=="v1",
+    "book cards carry Range length and source version")
 
 
 print(("bookshelf_browser_spec: %d checks"):format(checks))

@@ -1,19 +1,62 @@
 local Path = require("webdavmanga.path")
-local Formats = require("webdavmanga.image_formats")
+local Cover = require("webdavmanga.cover")
+local BookIndex = require("webdavmanga.book_index")
 local Catalog = {}; Catalog.__index = Catalog
 
 local function safe_image(image, root)
-    if type(image) ~= "table" or not Formats.is_supported(image.name) then return nil end
-    local path=Path.normalize_remote(image.path or "")
-    if path=="" or not Path.is_within_remote(path,root) then return nil end
-    return {name=tostring(image.name),path=path,size=tonumber(image.size),
-        etag=image.etag and tostring(image.etag),modified=image.modified and tostring(image.modified)}
+    local copy=Cover.copy_image(image,root)
+    if not copy then return nil end
+    -- DocumentCover uses Range for local and remote MOBI/archive files alike.
+    -- These other routes belong to reader history, never a shelf selection.
+    if copy.mobi_path or copy.archive_local_path then return nil end
+    if copy.mobi_record and not copy.mobi_remote_path then return nil end
+    if copy.archive_entry_name and not copy.archive_kind then return nil end
+    if copy.source_path and not copy.mupdf_page then return nil end
+    local adapters=0
+    for _,enabled in ipairs({copy.archive_kind~=nil,copy.mobi_remote_path~=nil,
+        copy.pdf_image==true,copy.mupdf_page~=nil}) do
+        if enabled then adapters=adapters+1 end
+    end
+    if adapters>1 then return nil end
+    for key,value in pairs(copy) do
+        if type(value)=="string" and (#value>32768 or value:find("%z")) then return nil end
+        if type(value)=="number" and (value<0 or value>4294967295 or value~=math.floor(value)) then return nil end
+    end
+    for _,key in ipairs({"archive_remote_path","mobi_remote_path","pdf_remote_path","mupdf_remote_path",
+        "mupdf_source_path","source_path","mobi_path","archive_local_path"}) do
+        if copy[key] and not Path.is_within_remote(copy[key],root) then return nil end
+    end
+    if copy.archive_kind then
+        local entry={};for key,value in pairs(copy) do
+            if key~="modified" and key~="is_folder" then entry[key]=value end
+        end
+        entry.is_file=true
+        if not BookIndex.from_table{version=1,count=1,items={entry}} then return nil end
+    elseif copy.mobi_remote_path then
+        if not copy.mobi_source_size or copy.mobi_source_size<1 or not copy.mobi_record or copy.mobi_record<1
+            or not copy.mobi_offset or not copy.mobi_size or copy.mobi_size<1
+            or copy.mobi_offset+copy.mobi_size>copy.mobi_source_size
+            or copy.path~=copy.mobi_remote_path.."#mobi/"..copy.mobi_record then return nil end
+    elseif copy.pdf_image then
+        if not copy.pdf_remote_path or not copy.pdf_source_size or copy.pdf_source_size<1
+            or not copy.page or copy.page<1 or copy.path~=copy.pdf_remote_path.."#pdf/"..copy.page then return nil end
+        if copy.pdf_image_offset or copy.pdf_image_length then
+            if not copy.pdf_image_offset or not copy.pdf_image_length or copy.pdf_image_length<1
+                or copy.pdf_image_offset+copy.pdf_image_length>copy.pdf_source_size then return nil end
+        elseif not copy.pdf_page_object or copy.pdf_page_object<1 then return nil end
+    elseif copy.mupdf_page then
+        local source=copy.mupdf_remote_path or copy.mupdf_source_path
+        if not source or copy.mupdf_page<1 or copy.path~=source.."#mupdf/"..copy.mupdf_page
+            or not copy.mupdf_source_size or copy.mupdf_source_size<1 then return nil end
+        if copy.source_path and copy.source_path~=copy.mupdf_source_path then return nil end
+    end
+    return copy
 end
 function Catalog:new(options)
     return setmetatable({cache=assert(options.cache),json=options.json or require("json"),
         identity_provider=assert(options.identity_provider),sequence=0},self)
 end
-function Catalog:_namespace(connection) return self.identity_provider(connection).."\0bookshelf-selection-v1" end
+function Catalog:_namespace(connection) return self.identity_provider(connection).."\0bookshelf-selection-v2" end
 function Catalog:_key(connection,path) return self.cache:key_for(self:_namespace(connection),path) end
 function Catalog:get_cover(connection,path)
     path=Path.normalize_remote(path or "")

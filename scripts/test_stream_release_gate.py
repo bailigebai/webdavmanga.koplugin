@@ -24,6 +24,7 @@ class ReleaseGateTest(unittest.TestCase):
                             "native_libraries": {"archive": "a" * 64, "lfs": "b" * 64}},
             "cases": [{"label": label, "kind": gate.CASE_KINDS[label], "source_sha256": f"{i:064x}",
                        "page_count": 21, "full_file_requests": 0,
+                       "bookshelf": {"decoded_images": 1, "warm_range_requests": 0, "first_page_matches_reading": True},
                        "rounds": {mode: {"positions": list(range(1, 22)), "decoded_images": 21}
                                   for mode in (("cold", "warm", "legacy") if label == "epub" else ("cold", "warm"))}}
                       for i, label in enumerate(gate.REQUIRED_CASES)],
@@ -41,6 +42,16 @@ class ReleaseGateTest(unittest.TestCase):
                       lambda r: r["cases"][0].update(source_sha256=r["cases"][1]["source_sha256"]),
                       lambda r: r["cases"][0]["rounds"].pop("warm"),
                       lambda r: r["cases"][2]["rounds"].pop("legacy")):
+            report = copy.deepcopy(self.report)
+            alter(report)
+            with self.assertRaises(ValueError):
+                gate.validate_report(report, self.plugin)
+
+    def test_rejects_missing_or_unreadable_shelf_cover(self):
+        for alter in (lambda r: r["cases"][0].pop("bookshelf"),
+                      lambda r: r["cases"][0]["bookshelf"].update(decoded_images=0),
+                      lambda r: r["cases"][0]["bookshelf"].update(warm_range_requests=1),
+                      lambda r: r["cases"][0]["bookshelf"].update(first_page_matches_reading=False)):
             report = copy.deepcopy(self.report)
             alter(report)
             with self.assertRaises(ValueError):

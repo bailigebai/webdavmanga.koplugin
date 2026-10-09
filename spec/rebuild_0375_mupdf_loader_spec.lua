@@ -44,4 +44,27 @@ expect(ready and rendered and published, "MuPDF page must render remotely and pu
 expect(selected_connection and selected_connection.id == "clicked",
     "MuPDF worker must use the click-time connection snapshot")
 os.remove(target)
+local function local_loader(validate,client,item)
+    local selected,failed,ready
+    local instance=Loader:new{validate_local_documents=validate,client_factory=function() return client end,
+        cache=loader.cache,async=loader.async,error_reporter=loader.error_reporter,
+        mupdf_pages={render_local=function(_,page,output)
+            selected=page.local_path or page.source_path or page.path:match("^(.-)#mupdf/")
+            local file=assert(io.open(output,"wb"));file:write("png");file:close()
+            return {format="png",width=1,height=1,size=3}
+        end}}
+    instance:request("local",item,{on_ready=function() ready=true end,on_error=function(err) failed=err end})
+    return selected,failed,ready
+end
+local local_page={name="00001.png",path="/Books/local.pdf#mupdf/1",mupdf_page=1,size=100,
+    mupdf_source_path="/Books/local.pdf",source_path="/Books/other.pdf",local_path="/outside.pdf"}
+local selected,failed,local_ready=local_loader(true,{direct=true,resolve_document=function(_,path) return path end},local_page)
+expect(local_ready and selected=="/Books/local.pdf","shelf rendering uses only the revalidated local source")
+selected,failed=local_loader(true,{direct=true,resolve_document=function() return nil end},local_page)
+expect(not selected and failed and failed.code=="local_path","changed or unavailable shelf source cannot reach native IO")
+local cached_page={name="00001.png",path="/Books/remote.pdf#mupdf/1",mupdf_page=1,size=100,
+    mupdf_source_path="/cache/remote.pdf",local_path="/cache/remote.pdf"}
+selected,failed,local_ready=local_loader(false,{direct=false,connection={kind="webdav"}},cached_page)
+expect(local_ready and selected=="/cache/remote.pdf" and not failed,
+    "normal reader can still render its already staged remote PDF")
 print(("rebuild_0375_mupdf_loader_spec: %d checks"):format(checks))

@@ -66,6 +66,10 @@ def validate_report(report: dict, plugin: Path) -> None:
         if not isinstance(count, int) or count < 1 or case.get("full_file_requests") != 0:
             raise ValueError("Stream verification failed: " + case["label"])
         expected = set(range(1, min(20, count) + 1)) | {count}
+        shelf = case.get("bookshelf", {})
+        if (shelf.get("decoded_images") != 1 or shelf.get("warm_range_requests") != 0
+                or shelf.get("first_page_matches_reading") is not True):
+            raise ValueError("Missing persisted readable bookshelf cover: " + case["label"])
         required = ("cold", "warm", "legacy") if case["label"] == "epub" else ("cold", "warm")
         for mode in required:
             result = case.get("rounds", {}).get(mode, {})

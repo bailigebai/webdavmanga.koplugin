@@ -150,6 +150,55 @@ for _, sample in ipairs(configuration) do
         print(("STREAM %s/%s catalog=%d readable=%d requests=%d bytes=%d"):format(
             sample.label, mode, count, #positions, requests - start_requests, bytes - start_bytes))
     end
+    -- Shelf extraction uses its own persisted descriptor and cache. Recreate
+    -- the catalog for the warm round to verify no in-memory-only cover state.
+    local shelf_cache=new_cache("-bookshelf")
+    local Catalog=require("webdavmanga.bookshelf_catalog")
+    local DocumentCover=require("webdavmanga.document_cover")
+    local Cover=require("webdavmanga.cover")
+    local connection={kind="webdav",root_path="/"}
+    local tasks,cursor={},0
+    local asynchronous={run=function(work,done,options)
+        tasks[#tasks+1]={work=work,done=done,options=options};return {cancel=function() end}
+    end}
+    local function drain_cover()
+        while cursor<#tasks do
+            cursor=cursor+1;assert(cursor<5000,"cover worker queue did not settle")
+            local task=tasks[cursor];local value=task.work()
+            local encoded=serialize({ok=true,result=value})
+            assert(#encoded<=(task.options and task.options.max_payload_bytes or 8192),"cover payload overflow")
+            task.done(true,assert(loadstring("return "..encoded))().result)
+        end
+    end
+    local parser=require("webdavmanga.archive_pages"):new{archiver=require("ffi/archiver")}
+    local document_cover=DocumentCover:new{client_factory=function() return source end,async=asynchronous,archive_pages=parser,
+        mupdf_pages={remote_capability=function() return false end}}
+    local loader=Loader:new{cache=shelf_cache,client_factory=function() return source end,async=asynchronous,archive_pages=parser}
+    local starts=requests
+    local ready_path
+    for _,mode in ipairs({"cold","warm"}) do
+        local before=requests
+        local catalog=Catalog:new{cache=shelf_cache,json=json,identity_provider=function() return "shelf" end}
+        local service=Cover:new{library=catalog,document_cover=document_cover,
+            directory_store={load=function() error("book file must not be loaded as a directory") end}}
+        local selected,failed
+        local document={name=entry.name,path=entry.path,size=size,is_file=true,etag=entry.etag,modified=entry.modified}
+        service:resolve(connection,{manga=document},{on_ready=function(image) selected=image end,
+            on_error=function(err) failed=err end})
+        drain_cover()
+        assert(selected and not failed,"shelf cover descriptor failed: "..sample.label.."/"..mode.." "..json.encode(failed))
+        local loaded_path
+        loader:request_cover(1,selected,{on_ready=function(path) loaded_path=path end,
+            on_error=function(err) failed=err end})
+        drain_cover();assert(loaded_path and not failed,"shelf first page could not be extracted")
+        if mode=="warm" then assert(requests==before,"persisted shelf cover issued fresh Range requests") end
+        ready_path=loaded_path
+    end
+    local input=assert(io.open(ready_path,"rb"));local body=assert(input:read("*a"));input:close()
+    local image_name=sample.label.."-bookshelf.image"
+    local output=assert(io.open("/output/"..image_name,"wb"));assert(output:write(body));assert(output:close())
+    result.bookshelf={image=image_name,cold_range_requests=requests-starts,warm_range_requests=0}
+    loader:cancel_all()
     result.maximum_range_bytes = maximum
     results[#results + 1] = result
     file:close()

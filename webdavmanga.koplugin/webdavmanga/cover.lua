@@ -7,7 +7,8 @@ local Cover = {}; Cover.__index = Cover
 local function copy_resource(resource, root)
     if type(resource) ~= "table" then return nil end
     local path = Path.normalize_remote(resource.path or ""); if path == "" or (root and not Path.is_within_remote(path, root)) then return nil end
-    return { name = tostring(resource.name or ""), path = path, is_folder = resource.is_folder and true or nil, is_file = resource.is_file and true or nil }
+    return { name = tostring(resource.name or ""), path = path, is_folder = resource.is_folder and true or nil,
+        is_file = resource.is_file and true or nil,size=tonumber(resource.size),etag=resource.etag,modified=resource.modified }
 end
 local function copy_image(image, root)
     if type(image) ~= "table" or not ImageFormats.is_supported(image.name) then return nil end
@@ -17,7 +18,8 @@ local function copy_image(image, root)
     for _, key in ipairs({ "width", "height", "mupdf_page", "mupdf_source_size", "mobi_source_size", "mobi_record",
         "mobi_offset", "mobi_size", "archive_source_size", "archive_local_offset",
         "archive_method", "archive_flags", "archive_crc32", "archive_compressed_size",
-        "archive_size" }) do
+        "archive_size", "archive_entry_offset", "archive_entry_ordinal", "archive_spine_position", "page",
+        "pdf_source_size", "pdf_page_object", "pdf_image_offset", "pdf_image_length" }) do
         local value = tonumber(image[key])
         if value and value == value and value ~= math.huge and value ~= -math.huge then
             copied[key] = value
@@ -25,11 +27,14 @@ local function copy_image(image, root)
     end
     if type(image.format) == "string" and image.format ~= "" then copied.format = image.format end
     for _, key in ipairs({ "mupdf_remote_path", "mupdf_source_path", "mobi_path", "mobi_remote_path", "archive_kind",
-        "archive_remote_path", "archive_entry_name", "archive_local_path", "archive_version" }) do
+        "archive_remote_path", "archive_entry_name", "archive_local_path", "archive_version", "archive_format",
+        "pdf_remote_path", "source_path" }) do
         if type(image[key]) == "string" and image[key] ~= "" then copied[key] = image[key] end
     end
+    if image.pdf_image == true then copied.pdf_image=true end
     return copied
 end
+Cover.copy_image=copy_image
 local function noop_handle() return { cancel = function() end } end
 local function directory_index(directory, kind)
     if type(directory) ~= "table" then return nil end
@@ -57,6 +62,7 @@ function Cover:new(options)
     o.library = assert(options.library, "library is required")
     o.directory_store = assert(options.directory_store, "directory store is required")
     o.search_all_children = options.search_all_children == true
+    o.document_cover = options.document_cover
     o.scheduler = options.scheduler
     if o.search_all_children and not o.scheduler then
         local ok, manager = pcall(require, "ui/uimanager")
@@ -76,7 +82,7 @@ function Cover:_valid_record(connection, record)
     local layout = record.layout and tostring(record.layout)
     if layout and layout ~= "direct" and layout ~= "chapters"
         and layout ~= "mobi_images" and layout ~= "archive_images"
-        and layout ~= "mupdf_pages" then return nil end
+        and layout ~= "mupdf_pages" and layout ~= "pdf_images" then return nil end
     return { manga = manga, chapter = chapter, layout = layout, hint_image = hint_image, hint_chapter = hint_chapter, root = root }
 end
 function Cover:get(connection, manga_path)
@@ -87,7 +93,10 @@ end
 function Cover:_cancel_active()
     local active = self.active; self.active = nil; self.generation = self.generation + 1
     if not active then return end
-    if active.directory and active.directory.close then active.directory:close(); active.directory=nil end
+    for directory in pairs(active.directories or {}) do
+        if directory.close then directory:close() end
+    end
+    active.directories={}
     local handles = active.handles or { active.handle }
     local canceled = {}
     for _, handle in ipairs(handles) do
@@ -103,7 +112,10 @@ function Cover:_notify(callbacks, key, value)
 end
 function Cover:_finish(active, callbacks, key, value)
     if self.active ~= active then return end; self.active = nil
-    if active.directory and active.directory.close then active.directory:close(); active.directory=nil end
+    for directory in pairs(active.directories or {}) do
+        if directory.close then directory:close() end
+    end
+    active.directories={}
     if key == "on_ready" then
         local image = copy_image(value, active.record.root); if not image then return self:_notify(callbacks, "on_error", Errors.invalid_path()) end
         local stored = self.error_reporter:guard("save_cache_index", function() return self.library:set_cover(active.connection, active.record.manga.path, image) end, false, nil, { silent = true })
@@ -120,80 +132,97 @@ function Cover:_finish(active, callbacks, key, value)
     self:_notify(callbacks, "on_error", value)
 end
 function Cover:_start(connection, record, callbacks, force)
-    self:_cancel_active(); self.generation = self.generation + 1; local active = { generation = self.generation, connection = connection, record = record, handles = {} }; self.active = active
+    self:_cancel_active()
+    local active={connection=connection,record=record,handles={},directories={}}
+    self.active=active
+    local last_error
     local function track(handle)
-        active.handles[#active.handles + 1] = handle
-        active.handle = handle
+        if handle then active.handles[#active.handles+1]=handle end
         return handle
     end
-    local function finish_image(image) self:_finish(active, callbacks, "on_ready", image) end
-    local function finish_error(err) self:_finish(active, callbacks, "error", err) end
-    local function finish_none() self:_finish(active, callbacks, "none") end
-    if not force and record.hint_image then finish_image(record.hint_image); return noop_handle() end
-    local store = self.directory_store
-    local function load(path, ready, failed)
-        return store:load(path, { refresh = force, on_ready = function(directory)
-            if self.active ~= active then if directory.close then directory:close() end; return end
-            ready(directory)
-        end, on_error = function(err) if self.active == active then failed(err) end end })
+    local function close(directory)
+        if not active.directories[directory] then return end
+        active.directories[directory]=nil
+        if directory.close then directory:close() end
     end
-    local function chapter_image(chapter_path)
-        track(load(chapter_path, function(directory)
-            local index = directory_index(directory, "images")
-            local image = index and index:get(1)
-            if directory.close then directory:close() end
-            if image then finish_image(image) else finish_none() end
-        end, finish_error))
+    local function ready(image) self:_finish(active,callbacks,"on_ready",image) end
+    local function finish()
+        if last_error then self:_finish(active,callbacks,"error",last_error)
+        else self:_finish(active,callbacks,"none") end
     end
-    local function search_children(folders)
-        local position, last_error = 0, nil
+    local function advance(callback)
+        if self.active~=active then return end
+        if self.scheduler and self.scheduler.scheduleIn then
+            self.scheduler:scheduleIn(0,function() if self.active==active then callback() end end)
+        else callback() end
+    end
+    local function inspect(document,next_document)
+        track(self.document_cover:resolve(connection,document,{
+            on_ready=function(image) if self.active==active then ready(image) end end,
+            on_error=function(err)
+                if self.active~=active then return end
+                last_error=err;advance(next_document)
+            end,
+        }))
+    end
+    -- Keep manifest-backed indices open until all of their entries are consumed.
+    local function search_directory(directory,next_directory,keep_open)
+        local images=directory_index(directory,"images")
+        local image=images and images:get(1)
+        if image then ready(image);return end
+        local documents=self.document_cover and directory_index(directory,"documents")
+        local position=0
         local step
-        local function advance()
-            if self.active ~= active then return end
-            if self.scheduler and self.scheduler.scheduleIn then self.scheduler:scheduleIn(0, step)
-            else step() end
-        end
-        step = function()
-            if self.active ~= active then return end
-            position = position + 1
-            local chapter = position <= folders:count() and folders:get(position)
-            if not chapter then
-                if last_error then finish_error(last_error) else finish_none() end
-                return
+        step=function()
+            if self.active~=active then return end
+            while documents and position<documents:count() do
+                position=position+1
+                local document=documents:get(position)
+                if document and self.document_cover:supports(document) then
+                    inspect(document,step);return
+                end
             end
-            track(load(chapter.path, function(directory)
-                if self.active ~= active then if directory.close then directory:close() end; return end
-                local images = directory_index(directory, "images")
-                local image = images and images:get(1)
-                if directory.close then directory:close() end
-                if image then finish_image(image) else advance() end
-            end, function(err) last_error = err; advance() end))
+            if not keep_open then close(directory) end
+            next_directory()
         end
         step()
     end
-    track(load(record.manga.path, function(directory)
-        local hint = Cover.hint_for_directory{
-            folders = directory_index(directory, "folders"),
-            images = directory_index(directory, "images"),
-        }
-        if hint.layout == "direct" then
-            local image = hint.image
-            if directory.close then directory:close() end
-            if image then finish_image(image) else finish_none() end
-        else
-            local chapter = record.hint_chapter or hint.chapter
-            local children
-            if self.search_all_children then
-                children = directory_index(directory, "folders")
+    local function load(path,on_ready,on_error)
+        return track(self.directory_store:load(path,{refresh=force,
+            on_ready=function(directory)
+                if self.active~=active then if directory.close then directory:close() end;return end
+                active.directories[directory]=true;on_ready(directory)
+            end,
+            on_error=function(err) if self.active==active then on_error(err) end end}))
+    end
+    if not force and record.hint_image then ready(record.hint_image)
+    elseif self.document_cover and record.manga.is_file and self.document_cover:supports(record.manga) then
+        inspect(record.manga,finish)
+    else
+        load(record.manga.path,function(directory)
+            local images=directory_index(directory,"images")
+            local image=images and images:get(1)
+            if image then ready(image);return end
+            local folders=directory_index(directory,"folders")
+            local position=0
+            -- Root remains pinned while a child is being searched; only one level.
+            local function next_child()
+                if self.active~=active then return end
+                local chapter
+                if self.search_all_children then
+                    position=position+1;chapter=folders and position<=folders:count() and folders:get(position)
+                elseif position==0 then
+                    position=1;chapter=record.hint_chapter or (folders and folders:get(1))
+                end
+                if not chapter then close(directory);finish();return end
+                load(chapter.path,function(child)
+                    search_directory(child,function() advance(next_child) end)
+                end,function(err) last_error=err;advance(next_child) end)
             end
-            if children then active.directory=directory;search_children(children)
-            else
-                if directory.close then directory:close() end
-                if chapter then chapter_image(chapter.path) else finish_none() end
-            end
-        end
-    end, finish_error))
-    return { cancel = function() if self.active == active then self:_cancel_active() end end }
+            search_directory(directory,next_child,true)
+        end,function(err) last_error=err;finish() end)
+    end
+    return {cancel=function() if self.active==active then self:_cancel_active() end end}
 end
 function Cover:resolve(connection, record, callbacks)
     self:_cancel_active()

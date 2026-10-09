@@ -37,6 +37,7 @@ function Loader:new(options)
     object.pdf_image_stream = options.pdf_image_stream or PdfImageStream:new()
     object.image_probe = options.image_probe or ImageProbe
     object.direct_local = options.direct_local == true
+    object.validate_local_documents = options.validate_local_documents == true
     object.download_limit_provider = options.download_limit_provider
     object.prefetch_count = tonumber(options.prefetch_count) or 3
     object.prefetch_first_pages = tonumber(options.prefetch_first_pages)
@@ -731,7 +732,23 @@ function Loader:_start_job(job, slot)
                     function(offset, count) return stream:read_at(offset, count) end,
                     part_path)
             else
-                metadata, render_error = self.mupdf_pages:render_local(job.image, part_path)
+                local local_image = job.image
+                -- Shelf local PDF descriptors originate from a validated
+                -- document, but validate again before native IO after restart.
+                if self.validate_local_documents and job.image.mupdf_source_path then
+                    local local_client = self.client_factory()
+                    if not local_client.direct or not local_client.resolve_document then
+                        return {error=Errors.local_path("local document resolver unavailable")}
+                    end
+                    local verified = local_client:resolve_document(job.image.mupdf_source_path)
+                    if verified ~= job.image.mupdf_source_path then
+                        return {error=Errors.local_path("local document source changed")}
+                    end
+                    local_image = {}
+                    for key, value in pairs(job.image) do local_image[key] = value end
+                    local_image.local_path, local_image.source_path = verified, verified
+                end
+                metadata, render_error = self.mupdf_pages:render_local(local_image, part_path)
             end
             if not metadata then
                 return { error = Errors.image_decode(render_error or "mupdf_render_failed",

@@ -56,6 +56,16 @@ local function default_ui()
     local ConfirmBox = require("ui/widget/confirmbox"); local InfoMessage = require("ui/widget/infomessage")
     local Menu = require("ui/widget/menu"); local UIManager = require("ui/uimanager")
     local adapter = { current_menu = nil }
+    function adapter:show_background(model)
+        if self.background then return end
+        self.background = require("webdavmanga.ui_background").new(model)
+        UIManager:show(self.background)
+    end
+    function adapter:close_background()
+        local widget = self.background
+        self.background = nil
+        if widget then UIManager:close(widget) end
+    end
     local function guarded(label, callback, fallback)
         if type(callback) ~= "function" then
             return function() return fallback end
@@ -408,12 +418,36 @@ function Browser:close_menu()
     return true
 end
 
+function Browser:begin_session()
+    if self.background_open then return end
+    if self.ui.show_background then
+        self.ui:show_background{
+            on_back=self:_callback("back from loading shelf",function()
+                local root=Path.normalize_remote(self.settings:get_connection().root_path)
+                local path=self.navigation_path or self.current_path or root
+                if path==root then return self:end_session() end
+                return self:show_library(false,parent_path(path,root))
+            end,true),
+            on_close=self:_callback("close loading shelf",function() return self:_confirm_close_plugin() end,true),
+        }
+    end
+    self.background_open=true
+end
+
+function Browser:end_session()
+    self:cancel()
+    if self.cover_grid and self.cover_grid.cancel then self.cover_grid:cancel() end
+    self:_close_directories()
+    self:close_menu()
+    self.background_open=false
+    self.navigation_path=nil
+    if self.ui.close_background then self.ui:close_background() end
+    return true
+end
+
 function Browser:_confirm_close_plugin()
     local function close_plugin_ui()
-        self:cancel()
-        self:_close_directories()
-        self:close_menu()
-        return true
+        return self:end_session()
     end
     if not self.ui or type(self.ui.confirm) ~= "function" then
         return close_plugin_ui()
@@ -557,7 +591,7 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
                 self:_begin_request(true); self.open_rating_shelf()
             end),
         },
-        { text = path == root and "← 退出漫画书架" or "← 返回上一级", callback = self:_callback("back from bookshelf", function() if path == root then if self.ui.close_menu then self.ui:close_menu() end else self:show_library(false, parent_path(path, root)) end end) },
+        { text = path == root and "← 退出漫画书架" or "← 返回上一级", callback = self:_callback("back from bookshelf", function() if path == root then self:end_session() else self:show_library(false, parent_path(path, root)) end end) },
     }
     local back_row_index = #items
     local folders, has_next, first = page_entries(sorted_index(folder_index), 1, math.max(1, tonumber(folder_index and folder_index:count()) or 1)); local epoch = self.session_epoch
@@ -565,8 +599,10 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
     local document_count = tonumber(document_index and document_index:count()) or 0
     local file_count = tonumber(direct_file_count) or image_count + document_count
     local has_files = file_count > 0
+    local document_cards=self.bookshelf_grid and self.settings.get_bookshelf_view
+        and self.settings:get_bookshelf_view()=="covers" and document_count>0
     local current_folder_index
-    if has_files then
+    if has_files and not (document_cards and image_count==0) then
         local current_folder = {
             name = path:match("([^/]+)$") or path,
             path = path,
@@ -630,6 +666,13 @@ function Browser:_directory_items(path, folder_index, page, image_index, documen
         cache_start = 0.70,
         secondary_start = cache_enabled and 0.86 or 0.70,
     } end end
+    if document_cards then
+        for position=1,document_count do
+            local item=self:_document_item({name=path:match("([^/]+)$") or path,path=path},
+                document_index:get(position),nil,epoch)
+            if item then items[#items+1]=item end
+        end
+    end
     -- For a document-only directory put the file-entry action before the
     -- back row, matching the compact document shelf layout. Image folders
     -- retain the established fixed-action ordering.
@@ -657,7 +700,7 @@ function Browser:_library_menu(path, items)
         end, true),
         on_back = self:_callback("back from bookshelf menu", function()
             if path == root then
-                if self.ui.close_menu then self.ui:close_menu() end
+                self:end_session()
             else
                 self:show_library(false, parent_path(path, root))
             end
@@ -696,13 +739,13 @@ function Browser:_bookshelf_covers(path,items)
                 return item.callback()
             end)
             card.on_hold=leave(function()
-                local cache_action=item.cache_callback or function()
+                local cache_action=item.cache_callback or (not item.manga.is_file and function()
                     return self:_premium_gate("cache",item.manga,function() return self.cache_manga(item.manga) end)
-                end
-                self.ui:show_menu{title=item.manga.name,items={
-                    {text="进入漫画",callback=item.secondary_callback},
-                    {text="缓存漫画",callback=cache_action},
-                },on_back=function() self:show_library(false,path) end}
+                end)
+                local actions={{text="进入漫画",callback=item.secondary_callback or item.callback}}
+                if cache_action then actions[#actions+1]={text="缓存漫画",callback=cache_action} end
+                self.ui:show_menu{title=item.manga.name,items=actions,
+                    on_back=function() self:show_library(false,path) end}
             end)
             cards[#cards+1]=card
         else actions[#actions+1]=item end
@@ -723,16 +766,18 @@ function Browser:_bookshelf_covers(path,items)
         on_settings=function() return self.settings_ui:show_bookshelf_cache() end,
         on_back=function()
             local root=Path.normalize_remote(self.settings:get_connection().root_path)
-            if path==root then self:close_menu();self:_begin_request(true)
+            if path==root then self:end_session()
             else self:show_library(false,parent_path(path,root)) end
         end,
     }
 end
 
 function Browser:show_library(is_refresh, target_path, target_page)
+    self:begin_session()
     if not self.settings:is_configured() then self.settings_ui:show_connection(function() self:show_library() end); return end
     self:_ensure_session_identity(); local connection = self.settings:get_connection(); local path = Path.normalize_remote(target_path or self.current_path or self:_saved_browser_path())
     if not Path.is_within_remote(path, connection.root_path) then path = Path.normalize_remote(connection.root_path); self.ui:show_info(Errors.message(Errors.invalid_path())) end
+    self.navigation_path=path
     target_page = target_page or 1; local generation = self:_begin_request(false)
     self:_close_except({ [path] = true })
     local store=self.bookshelf_directory_store or self.directory_store
@@ -928,6 +973,9 @@ function Browser:_document_item(manga, document, source_context, epoch)
         file_kind = "document", connection = self.settings:get_connection(),
     }
     local item = {
+        id=document.path,
+        manga={name=document.name,path=document.path,size=document.size,etag=document.etag,
+            modified=document.modified,is_file=true},
         text = supported and document.name
             or (tostring(document.name or document.path) .. "\n（不支持的文件格式）"),
         callback = self:_callback("open native document", function()
@@ -1125,6 +1173,7 @@ local function history_text(record)
     return ("%s · %s · %d / %d · %d%% · %s"):format(record.manga.name, record.chapter.name, index, total, math.floor(index * 100 / total), ts)
 end
 function Browser:show_history(options)
+    self:begin_session()
     options = options or {}
     local view_connection = options.connection or self.settings:get_connection()
     if not options.connection and self:_ensure_session_identity() then return self:show_library() end

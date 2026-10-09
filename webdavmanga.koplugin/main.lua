@@ -51,7 +51,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 
 local MB = 1024 * 1024
-local VERSION = "0.4.19"
+local VERSION = "0.4.20"
 local CATALOG_MIGRATION_VERSION = 3
 
 local WebDavManga = WidgetContainer:extend{
@@ -1115,7 +1115,8 @@ function WebDavManga:_teardown(force, source)
         if self.browser then self.browser:cancel() end
     end)
     stop("close browser menu", function()
-        if self.browser and self.browser.close_menu then self.browser:close_menu() end
+        if self.browser and self.browser.end_session then self.browser:end_session()
+        elseif self.browser and self.browser.close_menu then self.browser:close_menu() end
     end)
     stop("cancel library ui", function()
         if self.library_ui and self.library_ui.cancel then self.library_ui:cancel(false) end

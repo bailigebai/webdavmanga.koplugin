@@ -4,6 +4,9 @@ local UIManager = {
     show = function(_self, widget) shown[#shown + 1] = widget end,
     close = function(_self, widget) closed[#closed + 1] = widget end,
 }
+package.preload["webdavmanga.ui_background"]=function() return {new=function(model)
+    model.kind="plugin_background";return model
+end} end
 
 package.preload["ui/uimanager"] = function() return UIManager end
 package.preload["ui/widget/confirmbox"] = function()
@@ -112,8 +115,8 @@ expect(#closed == closed_before_close and browser.current_path == nested,
     "requesting close must keep the current bookshelf visible until confirmation")
 
 confirm.ok_callback()
-expect(closed[#closed] == nested_menu,
-    "confirming close must dismiss the whole bookshelf menu")
+expect(closed[#closed-1] == nested_menu and closed[#closed].kind=="plugin_background",
+    "confirming close must dismiss both the bookshelf menu and its background")
 expect(cancel_count > 0 and close_count > 0,
     "confirming close must cancel active browsing and release directory handles")
 

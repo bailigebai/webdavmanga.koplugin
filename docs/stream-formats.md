@@ -2,6 +2,8 @@
 
 正式打包必须携带通过的 `--stream-report`。报告绑定全部运行 Lua、原生库及检查脚本的 SHA-256；改了运行代码、版本或检查脚本后，必须重新验证。缺少任一原文件、页加载失败、完整图片解码失败、旧 EPUB 目录恢复失败、整本请求或旧报告都会阻止打包。
 
+0.4.20 起同一门禁还检查七本书的文档封面：真实 DocumentCover → 专用 Catalog → 页面 Loader 提取首图，创建新的 Catalog 复用持久化索引后再次读取，不得新增 Range 请求。首图需完整像素解码且与正文第一页逐像素一致。这里验证首图源文件与索引；缩略 PNG 生成、容量与清理流程由独立书架功能规格覆盖，不把页面 Loader 当成完整缩略图链路或真机显示验证。
+
 需要：Python 3.11+、`requirements-dev.txt` 中的 Lupa/Pillow、已有的 ARM Linux Docker 测试镜像（LuaJIT/libz），只读 KOReader 官方 runtime（含 ffi/archiver、JSON、lpeg），以及已复制的 Kindle libarchive 和 LFS。脚本不会安装镜像或修改设备配置。
 
 在仓库根目录运行（路径换成自己的本地目录）：

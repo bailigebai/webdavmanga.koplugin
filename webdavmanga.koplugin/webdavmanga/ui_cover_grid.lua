@@ -917,10 +917,12 @@ function CoverGrid:_visible(view, ids)
 end
 
 function CoverGrid:_close_view()
+    -- leave_for closes immediately, but its navigation runs next tick. Even
+    -- an already closed grid must invalidate that pending action on cancel.
+    self.leave_sequence = self.leave_sequence + 1
     if not self.is_open then return false end
     self.is_open = false
     self.view_sequence = self.view_sequence + 1
-    self.leave_sequence = self.leave_sequence + 1
     self:_cancel_active_work()
     if self.ui.free_visible then pcall(self.ui.free_visible, self.ui) end
     if self.ui.close_grid then pcall(self.ui.close_grid, self.ui) end

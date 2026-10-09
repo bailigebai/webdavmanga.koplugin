@@ -33,6 +33,17 @@ local fitted=Grid:new{cover_service=grid.cover_service,cache=grid.cache,loader=g
 fitted.is_open=true;fitted.active_generation=1
 fitted:_render_cover(1,{id="A"},"/shelf/landscape.png")
 expect(rendered_size[1]==120 and rendered_size[2]==60,"grid presentation preserves thumbnail ratio too")
+local deferred_action,queued=0,{}
+grid.scheduler={scheduleIn=function(_,_,callback) queued[#queued+1]=callback end}
+grid:show{items={}}
+grid:leave_for(function() deferred_action=deferred_action+1 end)
+grid:cancel()
+table.remove(queued,1)()
+expect(deferred_action==0,"cancel after grid closes also invalidates its queued navigation")
+grid:show{items={}}
+grid:leave_for(function() deferred_action=deferred_action+1 end)
+table.remove(queued,1)()
+expect(deferred_action==1,"live deferred navigation still executes once")
 
 
 print(("bookshelf_grid_spec: %d checks"):format(checks))

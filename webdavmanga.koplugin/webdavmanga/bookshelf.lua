@@ -3,6 +3,7 @@ local Cache=require("webdavmanga.cache")
 local Store=require("webdavmanga.bookshelf_store")
 local Catalog=require("webdavmanga.bookshelf_catalog")
 local Cover=require("webdavmanga.cover")
+local DocumentCover=require("webdavmanga.document_cover")
 local DirectoryStore=require("webdavmanga.directory_store")
 local SourceLoader=require("webdavmanga.loader")
 local ThumbnailLoader=require("webdavmanga.bookshelf_loader")
@@ -31,8 +32,10 @@ function Shelf:new(options)
         md5=options.md5,error_reporter=options.error_reporter}
     o.catalog=options.catalog or Catalog:new{cache=o.cache,identity_provider=o.identity_provider,json=options.json}
     o.cover=options.cover or Cover:new{library=o.catalog,directory_store=o.directory_store,
+        document_cover=options.document_cover or DocumentCover:new{client_factory=options.client_factory,async=options.async},
         search_all_children=true,scheduler=options.scheduler,error_reporter=options.error_reporter}
     o.source_loader=options.source_loader or SourceLoader:new{cache=o.cache,
+        validate_local_documents=true,
         client_factory=client,identity=id.."\0bookshelf-source-v1",async=options.async,
         prefetch_concurrency=1,error_reporter=options.error_reporter,
         download_limit_provider=function(image,part)

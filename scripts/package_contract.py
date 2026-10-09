@@ -6,7 +6,7 @@ FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PERMISSIONS = 0o100644 << 16
 MODULES = """
 archive_pages archive_stream async auto_crop book_index bookshelf bookshelf_store bookshelf_catalog bookshelf_loader bookshelf_toolbar bubble_zoom cache chapter_index client cover
-denoise dialog_keyboard directory_store document_bridge error_reporter errors format_diagnostics
+denoise dialog_keyboard directory_store document_cover document_bridge error_reporter errors format_diagnostics
 gray_enhance graydither_bridge image_formats image_probe keyboard_compat library license license_config license_crypto license_device
 license_rsa license_store license_transport lighting loader local_archive local_client manga_identity manifest
 manifest_posix meguru_association meguru_document meguru_pointer memory_pages memory_transfer
@@ -15,7 +15,7 @@ offline_manager opds_catalog opds_chapter_index opds_client opds_cover opds_driv
 opds_drivers/kavita opds_drivers/komga opds_drivers/suwayomi opds_pages opds_parser opds_progress
 opds_resume opds_url page_processor page_sequence panel_arrays panel_analysis panel_components panel_geometry panel_detector panel_view panel_session panel_source path
 pinyin_initials premium_access prepared_pages progress quadrant_zoom remote_stream safe_callback
-reader_help series_navigation settings state strict_integer tone_adjust transport ui_bookshelf_cache ui_browser ui_cover_grid
+reader_help series_navigation settings state strict_integer tone_adjust transport ui_background ui_bookshelf_cache ui_browser ui_cover_grid
 ui_library ui_opds ui_reader ui_reader_shell ui_registry ui_settings webdav_xml webtoon_session
 """.split()
 SAMPLES = """baseline.jpg grayscale.png lossless.WEBP lossy.webp manifest.lua progressive.jpeg
