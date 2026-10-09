@@ -57,6 +57,13 @@ local function build_mobi(image_count, options)
             .. string.rep("\0", math.max(0, size - #image))
     end
     local fcis_index = #records
+    if options.fdst then
+        record0 = replace_at(record0, 36, be32(options.mobi_version or 8))
+        record0 = replace_at(record0, 192, be32(fcis_index))
+        record0 = replace_at(record0, 196, be32(options.flow_count or 3))
+        records[#records + 1] = "FDST" .. string.rep("\0", 32)
+        fcis_index = #records
+    end
     records[#records + 1] = "FCIS"
     local flis_index = #records
     records[#records + 1] = "FLIS"
@@ -121,6 +128,17 @@ expect(range_calls <= 3,
         .. tostring(range_calls))
 expect(inspected_second_page == false,
     "opening must enter after validating the first page, before reading page two")
+
+for _, options in ipairs({{fdst=true}, {fdst=true,flow_count=1}, {fdst=true,mobi_version=6}}) do
+    local bytes = build_mobi(120, options)
+    local inspected = assert(MobiPages:new():inspect_remote({size=#bytes,
+        read_at=function(offset,count) return bytes:sub(offset+1,offset+count) end}, "/comic.azw3"))
+    local valid_fdst = options.flow_count ~= 1 and options.mobi_version ~= 6
+    expect(inspected.index:count() == (valid_fdst and 120 or 121),
+        "KF8 multi-flow FDST must be excluded; old/single-flow fields are not FDST boundaries")
+    expect(inspected.index:get(120).mobi_record == 121,
+        "FDST boundary retains the actual final image record")
+end
 expect(book.index:get(1).format == "jpeg"
     and book.index:get(1).width == 800 and book.index:get(1).height == 1200,
     "the first page must be validated before the reader opens")

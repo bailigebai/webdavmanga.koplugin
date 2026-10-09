@@ -1,6 +1,6 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.18，2026-10-08 书架缓存文件大小修复，设备测试版**。修复真实设备日志中漫画书架 E0003 及定期缓存清理的同源退出；包含 0.4.17 设置稳定性修复。刷新次数弹窗被遮挡还需更新 GrayDither 0.3.1；本版提供两个组件的完整修复套装。两个开关独立保存、默认关闭。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.19，2026-10-09 流式目录缓存修复，设备测试版**。修复旧 EPUB 目录缓存中的重复封面路径造成的 stream_failed；交付前强制执行七份原文件的 ARM 流式检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
@@ -8,16 +8,22 @@
 
 本版是**设备测试版，尚未安装设备验收**。完整回归结果见验证记录；Kindle 书架与清理操作、触控、墨水屏和性能仍需真机验收。
 
-请在 [v0.4.18 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.18) 下载 `webdavmanga-repair-0.4.18-graydither-0.3.1.zip` 与同名 `.sha256`。完整套装包含 WebDAV Manga 0.4.18 和 GrayDither 0.3.1。单独 WebDAV 安装包仍提供，但不能替代 GrayDither 的数字框修复。
+请在 [v0.4.19 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.19) 下载 `webdavmanga.koplugin-v0.4.19-20261009-stream-cache-fix.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
 
-1. 解压完整修复套装，得到 `webdavmanga.koplugin` 和 `graydither.koplugin` 两个文件夹。
-2. 完全退出 KOReader，备份原插件，再把两个完整文件夹复制到设备的 `koreader/plugins/` 目录。Kindle 常见路径为 `/mnt/us/koreader/plugins/`，以设备实际位置为准。
-3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录，也不要只把 ZIP 放进 plugins。
-4. 完全重启 KOReader，确认 WebDAV Manga `0.4.18` 和 GrayDither `0.3.1` 均已启用，再打开主菜单 **WebDAV 漫画 → 漫画书架**。连接信息在插件的连接设置中填写。
+1. 完全退出 KOReader，备份原插件，解压得到 `webdavmanga.koplugin` 文件夹。
+2. 将完整文件夹复制至 `koreader/plugins/`，覆盖插件程序文件。
+3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录。
+4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.19`，打开测试目录逐个验证七份原文件。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
 qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更新后完全退出并重启 KOReader。
+
+## v0.4.19：流式目录缓存修复
+
+旧 EPUB 缓存重复使用封面路径时，重建当前书的目录；保留严格首屏检查和独立页缓存。打包命令必须带与当前源码匹配的七样本流式报告。检查覆盖首次/重复打开、前20页与末页及完整图片解码，另复现旧 EPUB 目录恢复。
+
+[本版改动、验证与验收](docs/releases/v0.4.19.md)。ARM 原生检查使用 HTTP/调度/窗口替身，真实 Kindle 与 WebDAV 服务器仍需验收。
 
 ## v0.4.18：书架缓存文件大小修复
 
@@ -96,12 +102,14 @@ qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更�
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe scripts/run_lua_specs.py --all --syntax-root webdavmanga.koplugin
-.venv\Scripts\python.exe scripts/package_plugin.py
+.venv\Scripts\python.exe scripts/test_stream_release_gate.py
+# 先按 docs/stream-formats.md 跑原文件检查，生成 stream-report.json
+.venv\Scripts\python.exe scripts/package_plugin.py --stream-report stream-report.json
 ```
 
 已有象限适屏测试还需把 `KOREADER_FRONTEND` 指向官方 KOReader 的 `frontend` 目录。跨仓库真实灰图与刷新契约：`python scripts/run_graydither_contract.py --gray-root ../graydither`，参数与解压包复验方式见[接入验证](docs/graydither-integration.md)。
 
-Linux/macOS 将 Python 路径改为 `.venv/bin/python`。打包输出在 `dist/`，文件清单、敏感内容、原生库哈希和双次构建一致性会自动校验。`releases/` 保留已交付设备的安装 ZIP；后续源码变更须同步提供新包。
+Linux/macOS 将 Python 路径改为 `.venv/bin/python`。原文件与ARM依赖准备、命令及边界见[流式交付检查](docs/stream-formats.md)。打包输出在 `dist/`，文件清单、敏感内容、原生库哈希和双次构建一致性会自动校验。`downloads/` 保留当前交付安装 ZIP，`releases/` 保留历史安装包；后续源码变更须同步提供新包。
 
 ## 验收与限制
 

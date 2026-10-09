@@ -183,6 +183,14 @@ local function inspect_source(self, file_size, read_fn, remote_path, mobi_path,
     remote_path = tostring(remote_path or mobi_path or "mobi")
     local last_resource = record_count - 1
     if lazy_remote then
+        -- KF8 multi-flow books place FDST before FLIS/FCIS. It is a flow
+        -- index, not an image; single-flow headers may contain a garbage index.
+        local fdst = u32(record_head, 193)
+        local flows = u32(record_head, 197)
+        if u32(record_head, 37) == 8 and flows and flows > 1 and fdst
+            and fdst > first_resource and fdst <= last_resource then
+            last_resource = fdst - 1
+        end
         for _, position in ipairs({ 201, 209 }) do
             local tail_index = u32(record_head, position)
             if tail_index and tail_index ~= 4294967295

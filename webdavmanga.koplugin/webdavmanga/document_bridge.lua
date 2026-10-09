@@ -1449,11 +1449,16 @@ function DocumentBridge:_open_archive(entry, client, remote_path, callbacks, loc
                     end
                 end
                 if index then
+                    -- Older EPUB catalogs alias repeated spine images. Rebuild
+                    -- an ambiguous catalog instead of sharing page cache keys.
+                    local cached_page_paths = {}
                     for _, page in ipairs(index.items) do
                         if page.archive_remote_path ~= remote_path or page.archive_source_size ~= size
                             or not BookIndex.matches_archive_format(page, kind)
                             or page.archive_local_path or page.etag ~= entry.etag
-                            or page.archive_version ~= source_version(size) then index = nil; break end
+                            or page.archive_version ~= source_version(size)
+                            or cached_page_paths[page.path] then index = nil; break end
+                        cached_page_paths[page.path] = true
                     end
                 end
             end

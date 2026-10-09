@@ -104,7 +104,8 @@ end
 local function fixture_bridge(options)
     local state = { tasks = {}, scheduled = {}, records = {}, files = {},
         inspected = {}, extracted = 0, growth = 0, range_reads = 0, opens = 0 }
-    local bytes = fixture.book("direct", 25, true)
+    local bytes = fixture.book("direct", 25, true,
+        options and options.manifest == "legacy-alias")
     local cache = {
         key_for = function(_, identity, path, kind)
             return identity .. "|" .. path .. "|" .. tostring(kind or "")
@@ -255,8 +256,56 @@ local function fixture_bridge(options)
         if self.handle then self.handle.cancel() end
         for _, path in ipairs(self.files) do os.remove(path) end
     end
+    if options and options.manifest then
+        local entry = state.entry
+        local source = { size = #bytes, read_at = function(offset, length)
+            return bytes:sub(offset + 1, offset + length)
+        end }
+        local book = assert(ArchivePages:new():inspect_remote(source, "epub", entry.path))
+        local value = assert(book.index:to_table())
+        local version = #bytes .. ":2:v1:m1"
+        for _, page in ipairs(value.items) do
+            page.etag, page.archive_version = entry.etag, version
+            if options.manifest ~= "modern" then
+                page.archive_spine_position = nil
+                page.path = entry.path .. "#zip/" .. page.archive_entry_ordinal
+            end
+        end
+        if options.manifest == "late-alias" then value.items[5] = copy(value.items[4]) end
+        expect(require("webdavmanga.book_index").from_table(value) ~= nil,
+            "historical scalar-valid catalog fixture")
+        local key = cache:key_for("identity\0book-index", entry.path .. "\0" .. version)
+        local path = os.tmpname()
+        write(path, require("json").encode(value))
+        state.files[#state.files + 1] = path
+        state.records[key] = { key = key, kind = "manifest", path = path }
+        -- Unrelated cache records must survive an invalid book catalog.
+        state.records.unrelated = { key = "unrelated", kind = "page", path = "other-book" }
+    end
     bridge:_open_archive(state.entry, nil, state.entry.path, state.callbacks)
     return bridge, state
+end
+
+for _, catalog in ipairs({ "legacy-alias", "late-alias", "legacy-unique", "modern" }) do
+    local _, state = fixture_bridge{ manifest = catalog }
+    state:run(1)
+    if state.tasks[2] then state:run(2) end
+    if state.context and not state.context.stream_state.complete then state:run(3) end
+    local context, rebuilt = state.context, #state.inspected > 0
+    local unrelated = state.records.unrelated
+    state:close()
+    expect(context and state.fallback == nil and state.error == nil,
+        catalog .. " cached catalog opens without a full-download prompt")
+    expect(rebuilt == (catalog == "legacy-alias" or catalog == "late-alias"),
+        "rebuild only catalogs with ambiguous logical page paths: " .. catalog)
+    expect(context.chapter_index:count() == 25 and context.stream_state.complete,
+        catalog .. " retains every reading page")
+    local seen = {}
+    for _, page in ipairs(context.chapter_index.items) do
+        expect(not seen[page.path], catalog .. " publishes distinct logical pages")
+        seen[page.path] = true
+    end
+    expect(unrelated and unrelated.path == "other-book", "unrelated book cache is preserved")
 end
 
 for _, reader_case in ipairs({
@@ -688,8 +737,10 @@ do
     bridge:_open_archive(state.entry, nil, state.entry.path, state.callbacks)
     local before = state.opens
     state:run(4)
-    expect(state.opens == before and #state.tasks == 4,
-        "duplicate cached opening path never bypasses validation or opens Reader")
+    expect(state.opens == before + 1 and not state.fallback and not state.error,
+        "ambiguous cached catalog is reparsed before reusing valid opening images")
+    expect(state.context.chapter_index:get(1).path ~= state.context.chapter_index:get(2).path,
+        "rebuilt catalog never publishes the duplicate logical page")
     state:close()
 end
 
