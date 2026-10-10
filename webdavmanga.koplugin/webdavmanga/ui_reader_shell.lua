@@ -552,18 +552,19 @@ local function production_widget(shell, dependencies)
     end
 
     function ReaderWidget:onSetRotationMode()
-        shell:_graydither_call("reset")
-        return false
+        return self:onSetDimensions()
     end
 
     function ReaderWidget:onSetDimensions()
+        shell.screen_w, shell.screen_h = screen_dimensions(shell.screen)
+        shell.top_h = math.max(44, math.floor(shell.screen_h * .08))
+        self.dimen = dependencies.Screen:getSize()
         shell:_graydither_call("reset")
         return false
     end
 
     function ReaderWidget:onScreenResize()
-        shell:_graydither_call("reset")
-        return false
+        return self:onSetDimensions()
     end
 
     function ReaderWidget:onDoubleTap(arg, gesture)
@@ -724,7 +725,9 @@ function ReaderShell:new(options)
 end
 
 function ReaderShell:get_content_size()
-    return self.screen_w, self.screen_h
+    -- The host menu may change screen orientation outside rotate_device().
+    -- Gesture ranges and reader hit testing must query the same live size.
+    return screen_dimensions(self.screen)
 end
 
 function ReaderShell:save_panel_screenshot()

@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.24
+WebDAV Manga for KOReader - version 0.4.25
 
 Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
@@ -267,3 +267,6 @@ https://github.com/JorgeTheFox/koreader-dynamic-panelzoom
 revision 9ff32bf0ac91e4f7f471c1eed8c2025ef8fb04c4 (MIT).
 No source from that repository is copied into this package. Existing notices
 for previously adapted component/geometry source remain above.
+
+Version 0.4.25 only expands the existing native KOReader menu tap entry to
+the full-width top and bottom twelfths. No global gesture hooks or dependencies.

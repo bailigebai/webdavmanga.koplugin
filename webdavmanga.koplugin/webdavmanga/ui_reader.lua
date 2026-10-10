@@ -1782,6 +1782,13 @@ function Reader:onTap(_, gesture)
     if self.reader_settings and self.reader_settings.bubble_zoom_enabled==true
         and self.reader_settings.bubble_zoom_trigger~="hold"
         and self:show_bubble_at(gesture,true) then return true end
+    -- Keep the native menu reachable across both full-width screen edges,
+    -- including panel views, using the current dimensions after rotation.
+    if (y < height / 12 or y >= height * 11 / 12)
+        and type(self.show_koreader_menu) == "function" then
+        self:_silent("show_koreader_menu", self.show_koreader_menu, false)
+        return true
+    end
     if self.panel_entry then
         if x>=width/3 and x<=width*2/3 and y>=height/3 and y<=height*2/3 then
             return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
@@ -1797,12 +1804,6 @@ function Reader:onTap(_, gesture)
         if self.reader_settings.dynamic_panel_zoom_enabled and self:_panel_direction()=='manga' then delta=-delta end
         if not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_reverse_navigation then delta=-delta end
         return self:_move_panel(delta)
-    end
-    if x >= width / 3 and x <= width * 2 / 3
-        and y <= math.max(44, height * 0.12)
-        and type(self.show_koreader_menu) == "function" then
-        self:_silent("show_koreader_menu", self.show_koreader_menu, false)
-        return true
     end
     if x < width / 3 then
         if self.direction == "manga" then return self:next_page() end

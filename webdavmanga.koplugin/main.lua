@@ -51,7 +51,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 
 local MB = 1024 * 1024
-local VERSION = "0.4.24"
+local VERSION = "0.4.25"
 local CATALOG_MIGRATION_VERSION = 3
 
 local WebDavManga = WidgetContainer:extend{
