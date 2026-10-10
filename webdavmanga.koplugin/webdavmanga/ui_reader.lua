@@ -1619,6 +1619,8 @@ end
 function Reader:onTwoFingerTap(source_shell, gesture)
     if source_shell==self.shell and self.panel_session then return self:toggle_controls("panel_view") end
     if self.webtoon_session or not self:_quadrant_input_ready(source_shell) then return false end
+    if self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
+        and self.reader_settings.panel_entry_gesture~=nil then return self:enter_panel_mode("first") end
     if self.quadrant_hold then return true end
     local width, height = self.shell:get_content_size()
     local quadrant = Quadrant.from_gesture(gesture, width, height)
@@ -1713,30 +1715,41 @@ function Reader:onPanelPan(source_shell,gesture)
     return true
 end
 
-function Reader:show_bubble_at(gesture)
+function Reader:show_bubble_at(gesture, quiet)
     if self.shell and self.shell.bubble_zoom then return self.shell:close_bubble_zoom() end
-    if self.quadrant_hold or not self:_quadrant_input_ready(self.shell)
+    local shell=self.shell
+    local model=shell and shell.current_model
+    if self.closing or not shell or shell.closed or self.pending_request or self.panel_restore
+        or self.quadrant_hold or not model or model.kind~="page"
         or (self.webtoon_session and self.webtoon_session.busy) then return false end
     local viewport = self.page_viewport
+    if self.panel_session then
+        if self.panel_session.transition then return false end
+        local current=self.panel_session.current and self.panel_session:current()
+        viewport=current and current.buffer
+    elseif self.panel_entry and self.panel_entry.whole_page then
+        if not self.state:is_current(self.generation) or model.buffer~=self.page_buffer then return false end
+    elseif not self:_quadrant_input_ready(shell) then return false end
+    if not viewport then return false end
     local image = self.shell:get_page_image_rect()
     local point = BubbleZoom.map_point(gesture and gesture.pos, image,
         viewport:getWidth(), viewport:getHeight())
     if not point then
-        self.shell:show_status("请在对白气泡内部操作。", 2)
-        return true
+        if not quiet then self.shell:show_status("请在对白气泡内部操作。", 2) end
+        return false
     end
     local box, reason = BubbleZoom.detect(viewport, point)
     if not box then
-        self.shell:show_status(reason == "pixel_unavailable" and "当前图片无法识别对白气泡。"
-            or "未识别到明确的封闭对白气泡，请改按气泡空白处。", 2)
-        return true
+        if not quiet then self.shell:show_status(reason == "pixel_unavailable" and "当前图片无法识别对白气泡。"
+            or "未识别到明确的封闭对白气泡，请改按气泡空白处。", 2) end
+        return false
     end
     local scale = (self.reader_settings.bubble_zoom_scale or 2) * image.w / viewport:getWidth()
     local shown = self:_silent("show_bubble_zoom", function()
         return self.shell:show_bubble_zoom(viewport, box, gesture.pos, scale)
     end, false)
     if not shown then self.shell:show_status("气泡放大显示失败，请重试。", 2) end
-    return true
+    return shown
 end
 
 function Reader:onTap(_, gesture)
@@ -1755,6 +1768,9 @@ function Reader:onTap(_, gesture)
         and type(self.onRightTopDoubleTap) == "function" then
         return self:onRightTopDoubleTap()
     end
+    if self.reader_settings and self.reader_settings.bubble_zoom_enabled==true
+        and self.reader_settings.bubble_zoom_trigger~="hold"
+        and self:show_bubble_at(gesture,true) then return true end
     if self.panel_entry then
         if x>=width/3 and x<=width*2/3 and y>=height/3 and y<=height*2/3 then
             return self:toggle_controls("panel_view")
@@ -1763,7 +1779,9 @@ function Reader:onTap(_, gesture)
             or (self.panel_session and self.panel_session.render_options.view=="free") then return true end
         local vertical=self.reader_settings.panel_navigation=="vertical"
         local coordinate,size=vertical and y or x,vertical and height or width
-        if coordinate>=size/3 and coordinate<=size*2/3 then return self:toggle_controls("panel_view") end
+        local edge=size*(self.reader_settings.panel_edge_percent or 33)/100
+        if coordinate>=edge and coordinate<=size-edge then return self:toggle_controls("panel_view") end
+        if self.reader_settings.panel_tap_enabled==false then return true end
         local delta=coordinate<size/3 and -1 or 1
         if self.reader_settings.panel_reverse_navigation then delta=-delta end
         return self:_move_panel(delta)
@@ -1773,11 +1791,6 @@ function Reader:onTap(_, gesture)
         and type(self.show_koreader_menu) == "function" then
         self:_silent("show_koreader_menu", self.show_koreader_menu, false)
         return true
-    end
-    if self.reader_settings.bubble_zoom_enabled == true
-        and self.reader_settings.bubble_zoom_trigger == "tap"
-        and not self.panel_entry and not self.panel_session and not self.panel_restore then
-        return self:show_bubble_at(gesture)
     end
     if x < width / 3 then
         if self.direction == "manga" then return self:next_page() end
@@ -1791,22 +1804,24 @@ end
 
 function Reader:onHold(_, gesture)
     if self.closing then return false end
+    if self.quadrant_hold then return false end
     if self.shell and self.shell.bubble_zoom then
         local consumed = self.shell:close_bubble_zoom()
         self.shell.bubble_hold_consumed = consumed or nil
         return consumed
     end
     if self.reader_settings and self.reader_settings.bubble_zoom_enabled == true
-        and self.reader_settings.bubble_zoom_trigger ~= "tap"
-        and not self.panel_entry and not self.panel_session and not self.panel_restore then
-        local consumed = self:show_bubble_at(gesture)
+        and self.reader_settings.bubble_zoom_trigger ~= "tap" then
+        local consumed = self:show_bubble_at(gesture,true)
         if self.shell then self.shell.bubble_hold_consumed = consumed or nil end
-        return consumed
+        if consumed then return true end
     end
     if not self.reader_settings or self.reader_settings.panel_zoom_enabled ~= true then return false end
+    if self.reader_settings.panel_entry_gesture=="two_finger_tap" then return false end
     if self.shell and self.shell.current_model and self.shell.current_model.kind ~= "page" then return false end
     local session = self.panel_session
     if session and session:is_active() then
+        if session.finish_transition and not session:finish_transition() then return false end
         if self.shell.panel_zoom then return true end
         session:release_next()
         local current = session:current()
@@ -1842,6 +1857,7 @@ function Reader:_show_panel(buffer, _panel, index, count, render_options)
     render_options = render_options or (self.panel_session and self.panel_session.render_options)
     local shown = self.shell:show_page(buffer, buffer, nil, {
         refresh_type = "partial", reading_token = self:_reading_token("panel", index, render_options),
+        reader_generation=self.generation,
     },
         (self.position.index - 1 + index / count) / self:_count(),
         self.show_progress_bar, self.progress_bar_thickness,
@@ -1891,6 +1907,15 @@ function Reader:enter_panel_mode(desired)
     end
     local ok, session = pcall(self.panel_session_factory, {
         source = self.panel_source, detector = self.panel_detector, schedule = schedule,
+        schedule_frame=shell.scheduler and shell.scheduler.scheduleIn and function(delay,callback)
+            return shell.scheduler:scheduleIn(delay,callback)
+        end,
+        cancel_frame=shell.scheduler and shell.scheduler.unschedule and function(callback)
+            return shell.scheduler:unschedule(callback)
+        end,
+        animation_allowed=function()
+            return not (shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed())
+        end,
         screen_width = width, screen_height = height,
     })
     if not ok or not session then return self:_panel_fallback("panel_source_unavailable") end
@@ -1908,6 +1933,14 @@ function Reader:enter_panel_mode(desired)
         margin_percent = self.reader_settings.panel_standard_margin_percent,
         show_adjacent = self.reader_settings.panel_show_adjacent ~= false,
         experimental = self.reader_settings.panel_experimental_sort == true,
+        protect_text=self.reader_settings.panel_protect_text~=false,
+        detection_threshold=self.reader_settings.panel_detection_threshold,
+        background_detection=self.reader_settings.panel_background_detection,
+        transition_mode=shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed()
+            and "classic" or self.reader_settings.panel_transition_mode or "classic",
+        transition_duration=self.reader_settings.panel_transition_duration,
+        transition_frames=self.reader_settings.panel_transition_frames,
+        cross_page=self.panel_cross_page==true and self.reader_settings.panel_transition_cross_page==true,
     }, {
         on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count, render_options)
             if not active() then return false end
@@ -1921,6 +1954,7 @@ function Reader:enter_panel_mode(desired)
             if active() then return self:_panel_fallback(reason) end
         end, false),
     })
+    self.panel_cross_page=nil
     if started == false and self.panel_session == session then self:_panel_fallback() end
     return true
 end
@@ -1942,6 +1976,7 @@ function Reader:_request_panel_page(delta)
     end
     if self.panel_entry then self.panel_entry.whole_page = nil end
     self.panel_resume = delta > 0 and "first" or "last"
+    self.panel_cross_page=true
     return self:request_page(target, "whole")
 end
 
@@ -1993,7 +2028,8 @@ function Reader:exit_panel_mode()
 end
 
 function Reader:_panel_fallback(reason)
-    if self.panel_entry and (reason == "no_panels" or reason == "too_many_panels") then
+    if self.panel_entry and (reason == "no_panels" or reason == "too_many_panels"
+        or reason=="panel_layout_uncertain" or reason=="panel_content_uncovered") then
         local entry, session = self.panel_entry, self.panel_session
         local whole_page = entry.whole_page
         entry.whole_page = true
@@ -2031,6 +2067,7 @@ end
 function Reader:close_controls()
     if self.closing or not self.position then return false end
     if self.panel_session then
+        if self.panel_session.finish_transition and not self.panel_session:finish_transition() then return false end
         local current=self.panel_session:current()
         if current then return self:_show_panel(current.buffer,current.panel,current.index,current.count) end
         return false
@@ -2069,6 +2106,7 @@ function Reader:onSwipe(_, gesture)
             end
             return true
         end
+        if self.reader_settings.panel_swipe_enabled==false then return true end
         local vertical=self.reader_settings.panel_navigation=="vertical"
         local delta
         if vertical then
@@ -2101,6 +2139,7 @@ function Reader:set_panel_option(key,value,make_default)
     local previous=copy_table(self.reader_settings)
     local values=copy_table(previous);values[key]=value
     local session=self.panel_session
+    if session and session.transition then return false end
     local snapshot=self.settings.panel_snapshot and self.settings:panel_snapshot()
     local function commit()
         if self.panel_book_key and self.settings.set_panel_reader then
@@ -2113,7 +2152,9 @@ function Reader:set_panel_option(key,value,make_default)
         if snapshot and self.settings.restore_panel then self.settings:restore_panel(snapshot) end
     end
     local camera_keys={panel_view="view",panel_rotation="rotation",
-        panel_standard_margin_percent="margin_percent",panel_show_adjacent="show_adjacent"}
+        panel_standard_margin_percent="margin_percent",panel_show_adjacent="show_adjacent",
+        panel_protect_text="protect_text",panel_transition_mode="transition_mode",
+        panel_transition_frames="transition_frames",panel_transition_duration="transition_duration"}
     local camera_key=camera_keys[key]
     local saved
     if session and session:is_active() and camera_key then
@@ -2128,12 +2169,40 @@ function Reader:set_panel_option(key,value,make_default)
         return false
     end
     self.reader_settings=values
+    if not session and self.panel_entry and self.panel_entry.whole_page
+        and key=="panel_view" and value=="free" then return self:enter_panel_mode("first") end
+    if session and session:is_active() and (key=="panel_detection_threshold"
+        or key=="panel_background_detection" or key=="panel_experimental_sort") then
+        if not self:_display_segment("whole",false) then rollback();return false end
+        self.panel_session=nil;session:close()
+        return self:enter_panel_mode("first")
+    end
     if session and session:is_active() then
         local current=session:set_direction(self:_panel_direction())
         if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
     end
     if key=="panel_zoom_enabled" and value==false then self:exit_panel_mode() end
     return true
+end
+
+function Reader:save_panel_screenshot()
+    if not self.shell or not self:close_controls() then return false end
+    local path=self.shell:save_panel_screenshot()
+    self.shell:show_status(path and "当前分格截图已保存到 KOReader 截图目录。" or "截图保存失败，请检查截图目录。",2)
+    return path~=false
+end
+
+function Reader:rotate_panel_device()
+    if self.pending_request or not self.shell or self.closing then return false end
+    local session=self.panel_session
+    local desired=session and session.index or "first"
+    if not self:_display_segment("whole",false) then return false end
+    if session then self.panel_session=nil;session:close() end
+    local rotated=self.shell:rotate_device()
+    if not self:_display_segment("whole",false) then return false end
+    if self.panel_entry then self:enter_panel_mode(desired) end
+    if not rotated then self.shell:show_status("设备方向调整失败，已保留当前页。",2) end
+    return rotated
 end
 
 function Reader:_persist_reader(values)
@@ -2525,6 +2594,8 @@ end
 
 function Reader:toggle_controls(section)
     self.panel_pan=nil
+    if self.panel_session and self.panel_session.finish_transition
+        and not self.panel_session:finish_transition() then return false end
     section = section or "root"
     local function show_section(name)
         return self:toggle_controls(name)
@@ -2552,7 +2623,7 @@ function Reader:toggle_controls(section)
             return {text=text,callback=self:_callback("book panel view",function() return apply(false) end,false),
                 hold_callback=self:_callback("default panel view",function() return apply(true) end,false)}
         end
-        local views={context="保留周边",cut="独立格",free="自由视图"}
+        local views={context="Pan & Zoom · 保留周边",cut="Panel Cut · 独立格",free="Free View · 自由视图"}
         local view=self.reader_settings.panel_view or "context"
         local next_view=view=="context" and "cut" or view=="cut" and "free" or "context"
         local rotation=self.reader_settings.panel_rotation or 0
@@ -2574,8 +2645,64 @@ function Reader:toggle_controls(section)
                 "panel_order",self:_panel_direction()=="manga" and "normal" or "manga"),
             action("退出分格 → 整页","exit panel view",function() return self:exit_panel_mode() end),
             action("继续看当前格","resume panel view",show_current_page),
-            action("漫画阅读设置","open panel settings",function() return show_section("root") end),
+            action("更多分格设置","open advanced panel settings",function() return show_section("panel_advanced") end),
+            action("当前视图截图","save panel screenshot",function() return self:save_panel_screenshot() end),
+            action("旋转整个设备 ↻","rotate panel device",function() return self:rotate_panel_device() end),
         }
+    elseif section=="panel_advanced" then
+        title="更多分格设置 · 本书 / 长按默认"
+        actions={
+            action("过渡效果与性能","panel motion settings",function() return show_section("panel_motion") end),
+            action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
+            action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
+            action("← 返回分格视图","return to panel view",function() return show_section("panel_view") end),
+        }
+    elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
+        local Options=require("webdavmanga.panel_options")
+        local group=section:sub(7)
+        title=({motion="过渡效果与性能",navigation="触发手势与导航",detection="裁切与识别"})[group]
+            .." · 点按本书 / 长按默认"
+        actions={}
+        for _,field in ipairs(Options.fields) do
+            if field.group==group then
+                local f=field
+                local value=self.reader_settings[f.key]
+                if value==nil then value=f.default end
+                local index=Options.index(f,value) or 1
+                local target=f.choices[index%#f.choices+1]
+                local function apply(default)
+                    if not self:set_panel_option(f.key,target,default) then return false end
+                    return show_section(section)
+                end
+                actions[#actions+1]={text=f.title.."："..Options.label(f,value),
+                    callback=self:_callback("panel option "..f.key,function() return apply(false) end,false),
+                    hold_callback=self:_callback("panel default "..f.key,function() return apply(true) end,false)}
+            end
+        end
+        if group=="detection" then
+            local function toggle(key,label)
+                local value=self.reader_settings[key]==true
+                local function apply(default)
+                    if not self:set_panel_option(key,not value,default) then return false end
+                    return show_section(section)
+                end
+                actions[#actions+1]={text=label..(value and "：开" or "：关"),
+                    callback=self:_callback(key,function() return apply(false) end,false),
+                    hold_callback=self:_callback(key,function() return apply(true) end,false)}
+            end
+            toggle("panel_show_adjacent","显示相邻内容")
+            local margins={0,2,5,10}
+            local current=self.reader_settings.panel_standard_margin_percent or 0
+            local index=1;for i,v in ipairs(margins) do if v==current then index=i end end
+            local function margin(default)
+                if not self:set_panel_option("panel_standard_margin_percent",margins[index%#margins+1],default) then return false end
+                return show_section(section)
+            end
+            actions[#actions+1]={text=("分格边距：%d%%"):format(current),
+                callback=self:_callback("panel margin",function() return margin(false) end,false),
+                hold_callback=self:_callback("panel margin default",function() return margin(true) end,false)}
+        end
+        actions[#actions+1]=action("← 更多分格设置","back to advanced panel",function() return show_section("panel_advanced") end)
     elseif section == "reading" then
         title = "阅读翻页"
         actions = {
@@ -2636,8 +2763,8 @@ function Reader:toggle_controls(section)
         actions = {
             action(self.reader_settings.bubble_zoom_enabled == true and "气泡放大：开" or "气泡放大：关",
                 "toggle bubble zoom", function() return bubble_setting("bubble_zoom_enabled",{true,false}) end),
-            action(self.reader_settings.bubble_zoom_trigger == "tap" and "气泡手势：单指点按" or "气泡手势：单指长按",
-                "cycle bubble trigger", function() return bubble_setting("bubble_zoom_trigger",{"hold","tap"}) end),
+            action("气泡手势："..({tap="点按优先",hold="长按",both="点按与长按优先"})[self.reader_settings.bubble_zoom_trigger or "both"],
+                "cycle bubble trigger", function() return bubble_setting("bubble_zoom_trigger",{"both","hold","tap"}) end),
             action(("气泡倍率：%.1f 倍"):format(self.reader_settings.bubble_zoom_scale or 2),
                 "cycle bubble scale", function() return bubble_setting("bubble_zoom_scale",{1.5,2,3}) end),
             action("显示：" .. fit_label,

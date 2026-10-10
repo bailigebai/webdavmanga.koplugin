@@ -2,6 +2,8 @@ local Path = require("webdavmanga.path")
 local GrayEnhance = require("webdavmanga.gray_enhance")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 
+local PanelOptions = require("webdavmanga.panel_options")
+
 local Settings = {}
 Settings.__index = Settings
 
@@ -35,7 +37,7 @@ local DEFAULT_READER = {
     webtoon_fit_percent = 5,
     webtoon_margin_percent = 0,
     bubble_zoom_enabled = false,
-    bubble_zoom_trigger = "hold",
+    bubble_zoom_trigger = "both",
     bubble_zoom_scale = 2,
     gray_enhance_enabled = false,
     gray_enhance_preset = "original",
@@ -74,6 +76,8 @@ local DEFAULT_READER = {
     grid_columns = 5,
     animation_enabled = false,
 }
+
+for _, field in ipairs(PanelOptions.fields) do DEFAULT_READER[field.key]=field.default end
 
 local DEFAULT_BROWSE_CACHE = {
     total_mb = 5120,
@@ -681,7 +685,8 @@ function Settings:get_reader()
         reader.tone_adjust_sample_path) or ""
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
     reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
-    if reader.bubble_zoom_trigger ~= "tap" then reader.bubble_zoom_trigger = "hold" end
+    if not one_of(reader.bubble_zoom_trigger,{"hold","tap","both"}) then reader.bubble_zoom_trigger="both" end
+    PanelOptions.normalize(reader)
     if not one_of(reader.bubble_zoom_scale, {1.5, 2, 3}) then reader.bubble_zoom_scale = 2 end
     reader.panel_show_adjacent = reader.panel_show_adjacent ~= false
     reader.panel_experimental_sort = reader.panel_experimental_sort == true
@@ -723,6 +728,7 @@ function Settings:set_reader(values)
     if type(reader.tone_adjust_enabled) ~= "boolean" then
         return nil, "invalid_tone_adjust_enabled"
     end
+    if not PanelOptions.validate(reader) then return nil,"invalid_panel_view_settings" end
     if type(reader.panel_zoom_enabled) ~= "boolean"
         or type(reader.panel_show_adjacent) ~= "boolean"
         or type(reader.panel_experimental_sort) ~= "boolean" then
@@ -736,7 +742,7 @@ function Settings:set_reader(values)
         return nil,"invalid_panel_view_settings"
     end
     if type(reader.bubble_zoom_enabled) ~= "boolean"
-        or not one_of(reader.bubble_zoom_trigger, {"hold", "tap"})
+        or not one_of(reader.bubble_zoom_trigger, {"hold", "tap", "both"})
         or not one_of(reader.bubble_zoom_scale, {1.5, 2, 3}) then
         return nil, "invalid_bubble_zoom"
     end
@@ -1176,6 +1182,7 @@ local PANEL_CHOICES={
     panel_hold_margin_percent={2,5,10,15,20},panel_initial_zoom={1,1.2,1.5,2},
     panel_experimental_sort={false,true},
 }
+for _,f in ipairs(PanelOptions.fields) do PANEL_CHOICES[f.key]=f.choices end
 local function book_key(key)
     return type(key)=="string" and #key==32 and key:match("^%x+$") and key:lower()
 end

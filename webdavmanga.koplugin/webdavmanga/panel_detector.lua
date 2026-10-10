@@ -269,7 +269,7 @@ end
 function PanelDetector.detect(raster, options)
     options = options or {}
     if raster and raster.buffer and not options.backend then
-        local panels,reason=require("webdavmanga.panel_analysis").detect(raster)
+        local panels,reason=require("webdavmanga.panel_analysis").detect(raster,options)
         if not panels then return nil,reason end
         return PanelDetector.sort(panels,options.direction or "normal")
     end

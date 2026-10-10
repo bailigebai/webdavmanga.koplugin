@@ -727,6 +727,42 @@ function ReaderShell:get_content_size()
     return self.screen_w, self.screen_h
 end
 
+function ReaderShell:save_panel_screenshot()
+    if self.closed or not self.current_model or self.current_model.kind~="page" then return false end
+    local previous=self.current_model
+    local clean={}
+    for k,v in pairs(previous) do clean[k]=v end
+    clean.show_progress,clean.status_text=false,nil
+    local ok,path=pcall(function()
+        local Screenshoter=require("ui/widget/screenshoter")
+        local directory=Screenshoter:getScreenshotDir()
+        assert(type(directory)=="string" and directory~="","screenshot directory unavailable")
+        assert(self:_publish(clean)~=false)
+        assert(self.ui_manager and self.ui_manager.forceRePaint and self.screen and self.screen.shot)
+        self.ui_manager:forceRePaint()
+        local name=directory..os.date("/WebDAVManga_panel_%Y-%m-%d_%H%M%S.png")
+        assert(self.screen:shot(name)==true,"screenshot write failed")
+        return name
+    end)
+    if not self.closed then pcall(self._publish,self,previous) end
+    return ok and path or false
+end
+
+function ReaderShell:rotate_device()
+    if self.closed or not self.screen or not self.screen.getRotationMode
+        or not self.ui_manager or not self.ui_manager.broadcastEvent or not self.ui_manager.onRotation then return false end
+    local ok=pcall(function()
+        local Event=require("ui/event")
+        local mode=(self.screen:getRotationMode()+1)%4
+        self.ui_manager:broadcastEvent(Event:new("SetRotationMode",mode))
+        self.ui_manager:onRotation()
+        self.screen_w,self.screen_h=screen_dimensions(self.screen)
+        self.top_h=math.max(44,math.floor(self.screen_h*.08))
+        if self.widget and self.widget.init then self.widget:init() end
+    end)
+    return ok
+end
+
 function ReaderShell:get_message_content_size()
     return self.screen_w, math.max(1, self.screen_h - self.top_h)
 end

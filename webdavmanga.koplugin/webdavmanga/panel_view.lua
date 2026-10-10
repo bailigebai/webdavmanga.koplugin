@@ -18,7 +18,7 @@ function View.compute(panel,crop,width,height,options)
     local tw,th=options.screen_width,options.screen_height
     if not finite(tw) or not finite(th) or tw<=0 or th<=0 then return nil,"invalid_panel_screen" end
     if rotation==90 or rotation==270 then tw,th=th,tw end
-    local region=panel.protect or panel
+    local region=options.protect_text==false and panel or panel.protect or panel
     if not valid(region) then return nil,"invalid_panel" end
     local margin=options.margin_percent or 0
     if not finite(margin) then return nil,"invalid_panel_margin" end

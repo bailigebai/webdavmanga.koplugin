@@ -79,6 +79,18 @@ local function reach_miss(f)
     expect(r.panel_entry~=nil and r.panel_session==nil,"a no-panel page retains panel reading intent without a failed session")
 end
 
+do
+    local f=fixture();local r=f.reader
+    reach_miss(f)
+    expect(r:set_panel_option("panel_view","free"),"free view can be selected on the undetected current page")
+    f:complete()
+    expect(r.panel_session and r.panel_session:is_active() and r.panel_session.render_options.view=="free"
+        and not r.panel_entry.whole_page,"fallback-to-free must create a real camera session immediately")
+    expect(r.panel_session:zoom(1.25) and r.panel_session.render_options.zoom==1.25,
+        "the current undetected page can now zoom without turning to another page")
+    f:close()
+end
+
 -- Forward and backward navigation includes consecutive undetected pages.
 do
     local f=fixture();local r=f.reader

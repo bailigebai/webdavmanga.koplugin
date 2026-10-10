@@ -6,8 +6,8 @@ local function expect(v,m) checks=checks+1;assert(v,m) end
 local settings=Settings:new{store={readSetting=function(_,key,default) return stored[key] or default end,
     saveSetting=function(_,key,value) stored[key]=value end,flush=function() return true end}}
 local defaults=settings:get_reader()
-expect(defaults.bubble_zoom_enabled==false and defaults.bubble_zoom_trigger=="hold"
-    and defaults.bubble_zoom_scale==2,"bubble settings preserve existing gestures by default")
+expect(defaults.bubble_zoom_enabled==false and defaults.bubble_zoom_trigger=="both"
+    and defaults.bubble_zoom_scale==2,"bubble remains opt-in and defaults to dialogue-priority gestures")
 local values={};for k,v in pairs(defaults) do values[k]=v end
 values.bubble_zoom_enabled=true;values.bubble_zoom_trigger="tap";values.bubble_zoom_scale=3
 expect(settings:set_reader(values) and settings:get_reader().bubble_zoom_enabled

@@ -180,7 +180,7 @@ local function normalize_reader(values, current)
     else
         show_preprocess_success = to_boolean(show_preprocess_success)
     end
-    return {
+    local result = {
         direction = tostring(values.direction or ""),
         prefetch_count = tonumber(values.prefetch_count),
         prefetch_first_pages = tonumber(values.prefetch_first_pages),
@@ -233,6 +233,14 @@ local function normalize_reader(values, current)
         grid_columns = tonumber(values.grid_columns),
         animation_enabled = to_boolean(values.animation_enabled),
     }
+    for _,f in ipairs(require("webdavmanga.panel_options").fields) do
+        result[f.key]=values[f.key]
+        if result[f.key]==nil then result[f.key]=current[f.key] end
+    end
+    for _,key in ipairs({"panel_view","panel_rotation","panel_navigation","panel_reverse_navigation","panel_order"}) do
+        result[key]=values[key];if result[key]==nil then result[key]=current[key] end
+    end
+    return result
 end
 
 local function is_connection_shape_valid(values)
@@ -968,7 +976,7 @@ local function default_ui()
                 items = {
                     {key = "bubble_zoom_enabled", title = "气泡放大", choices = on_off},
                     {key = "bubble_zoom_trigger", title = "气泡触发手势", choices = {
-                        {value = "hold", text = "单指长按"}, {value = "tap", text = "单指点按（替代正文点按翻页）"},
+                        {value = "hold", text = "单指长按"}, {value = "tap", text = "点中对白才放大"}, {value="both",text="点按与长按（对白优先）"},
                     }},
                     {key = "bubble_zoom_scale", title = "气泡放大倍率", choices = number_choices({1.5,2,3}," 倍")},
                     { key = "fit_mode", title = "显示模式", choices = {
@@ -1035,6 +1043,8 @@ local function default_ui()
                         choices = number_choices({ 1.0, 1.2, 1.5, 2.0 }, " 倍") },
                 },
             },
+            {key="panel_advanced",title="分格高级设置",summary="过渡、手势、对白保护和识别",
+                items=require("webdavmanga.panel_options").items()},
             {
                 key = "crop", title = "裁切白边", summary = "识别强度、最大比例",
                 items = {

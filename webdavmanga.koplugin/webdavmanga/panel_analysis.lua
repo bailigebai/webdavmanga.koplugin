@@ -15,7 +15,7 @@ local function gray(buffer,x,y)
     assert(finite(value),"invalid_pixel")
     return math.max(0,math.min(255,math.floor(value)))
 end
-local function sample(raster)
+local function sample(raster,options)
     local b=assert(raster.buffer)
     local bw,bh=b:getWidth(),b:getHeight()
     assert(finite(bw) and finite(bh) and bw>=8 and bh>=8,"invalid_page")
@@ -56,9 +56,14 @@ local function sample(raster)
         end end
         if white then background=255 end
     end
+    options=options or {}
+    if options.background_detection=="light" then background=255
+    elseif options.background_detection=="dark" then background=0 end
+    local threshold=options.detection_threshold or 40
+    if threshold~=25 and threshold~=40 and threshold~=55 and threshold~=70 then threshold=40 end
     local ink=0
     for i=0,w*h-1 do
-        data[i]=math.abs(data[i]-background)>40 and 1 or 0
+        data[i]=math.abs(data[i]-background)>threshold and 1 or 0
         ink=ink+data[i]
     end
     return {w=w,h=h,data=data,ink=ink}
@@ -119,8 +124,8 @@ local function protect(panels,map)
     end
     return panels
 end
-local function detect(raster)
-    local map=sample(raster)
+local function detect(raster,options)
+    local map=sample(raster,options)
     if map.ink==0 then return nil,"no_panels" end
     local panels,reason=Components.segment(map,{component_frame_min=1,segment_max_panels=64})
     if #panels==0 then return nil,reason or "no_panels" end
@@ -136,8 +141,8 @@ local function detect(raster)
     end
     return panels
 end
-function Analysis.detect(raster)
-    local ok,value,reason=pcall(detect,raster)
+function Analysis.detect(raster,options)
+    local ok,value,reason=pcall(detect,raster,options)
     if not ok then return nil,"panel_detection_failed" end
     return value,reason
 end

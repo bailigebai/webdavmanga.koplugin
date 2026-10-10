@@ -117,7 +117,17 @@ function Handle:camera(panel,options)
     for k,v in pairs(options or {}) do values[k]=v end
     values.screen_width=positive(values.screen_width) or self.screen_width
     values.screen_height=positive(values.screen_height) or self.screen_height
-    return View.compute(panel,self.crop_normalized,self.width,self.height,values)
+    local camera,reason=View.compute(panel,self.crop_normalized,self.width,self.height,values)
+    if camera and values.transition_box then
+        local box=clipped(values.transition_box)
+        if not box or box.x<self.crop_normalized.x or box.y<self.crop_normalized.y
+            or box.x+box.w>self.crop_normalized.x+self.crop_normalized.w+.000001
+            or box.y+box.h>self.crop_normalized.y+self.crop_normalized.h+.000001 then
+            return nil,"invalid_panel_camera"
+        end
+        camera.box=box
+    end
+    return camera,reason
 end
 
 function Handle:pan_options(panel,options,dx,dy)

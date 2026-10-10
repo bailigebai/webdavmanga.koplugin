@@ -89,36 +89,18 @@ do
 end
 do
     local r,o=reader(false)
-    r.shell.widget:onHold(nil,{pos={x=5,y=5}})
-    expect(r.shell.widget:onBubbleHoldPan()==true,"moving after a missed bubble hold cannot reach the underlying reader")
-    expect(r.shell.widget:onTwoFingerHoldRelease(nil,{ges="hold_release"})==true,
-        "missed bubble hold release is consumed")
-    expect(r.shell.widget:onBubbleHoldPan()==false
-        and r.shell.widget:onTwoFingerHoldRelease(nil,{ges="hold_release"})==false,
-        "bubble hold consumption ends at its release")
-end
-do
-    local r,o=reader(false)
-    r.shell.widget:onHold(nil,{pos={x=5,y=5}})
-    expect(r.shell.widget:onTwoFingerHold(nil,{pos={x=280,y=380}}),
-        "a later two-finger hold can start after a lost single-finger release")
+    r.reader_settings.panel_zoom_enabled=false
+    expect(r.shell.widget:onHold(nil,{pos={x=5,y=5}})==false,
+        "a missed bubble hold is not consumed when panels are disabled")
+    expect(r.shell.widget:onBubbleHoldPan()==false and r.shell.widget:onTwoFingerHoldRelease(nil,{ges="hold_release"})==false,
+        "missed bubble detection must leave no stale hold state")
+    expect(r.shell.widget:onTwoFingerHold(nil,{pos={x=280,y=380}}),"quadrant hold remains reachable after a bubble miss")
     expect(r.shell.widget:onTwoFingerHoldRelease(nil,{ges="hold_release"}) and not r.quadrant_hold,
-        "stale bubble gesture cannot swallow the quadrant release alias")
+        "quadrant release remains reachable")
 end
 do
     local r,o=reader(false)
-    local timer
-    r.shell.scheduler={scheduleIn=function(_,_,callback) timer=callback end}
-    r.shell.widget:onHold(nil,{pos={x=5,y=5}})
-    local old=timer
-    r.shell.widget:onHold(nil,{pos={x=280,y=380}})
-    local overlay=r.shell.bubble_zoom
-    expect(overlay~=nil,"retry can open a bubble after a missed press")
-    old()
-    expect(r.shell.bubble_zoom==overlay,"old failure hint cannot dismiss a later successful bubble")
-end
-do
-    local r,o=reader(false)
+    r.reader_settings.panel_zoom_enabled=false
     r.shell.widget:onHold(nil,{pos={x=5,y=5}})
     expect(not r.shell.bubble_zoom and r.shell.current_model.kind=="page" and not r.panel_session,
         "pressing outside the image never enters panel mode")

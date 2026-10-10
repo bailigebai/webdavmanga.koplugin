@@ -47,7 +47,7 @@ local actual=setmetatable({settings=s,panel_book_key=book_key,reader_settings=s:
  direction="normal",context={chapter_index={count=function() return 1 end}},
  ui={show_controls=function(_,v) model=v;return true end,show_info=function(_,v) info=v end}},Reader)
 actual:toggle_controls("panel_view")
-expect(#model.actions==10,"panel controls expose three views, rotation, zoom and independent navigation")
+expect(#model.actions==12,"panel controls expose three views, rotation, zoom and independent navigation")
 local rotate=model.actions[2]
 local default_angle=s:get_reader().panel_rotation
 expect(rotate.callback() and actual.reader_settings.panel_rotation==(default_angle+90)%360,
