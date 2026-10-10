@@ -56,7 +56,7 @@ local function default_ui()
     end
 
     function adapter:show_info(message)
-        UIManager:show(InfoMessage:new{ text = message, timeout = 3 })
+        registry:show(InfoMessage:new{ text = message, timeout = 3 })
     end
 
     function adapter:close_menu()

@@ -51,7 +51,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 
 local MB = 1024 * 1024
-local VERSION = "0.4.20"
+local VERSION = "0.4.21"
 local CATALOG_MIGRATION_VERSION = 3
 
 local WebDavManga = WidgetContainer:extend{
@@ -87,8 +87,43 @@ local function migrate_catalog_store(store)
 end
 
 function WebDavManga:_guard(label, callback)
-    if self.switching_connection or self.tearing_down or self.stopped then return nil end
+    if self.switching_connection or self.tearing_down or self.closing_ui_session or self.stopped then return nil end
     return self.error_reporter:guard(label, callback)
+end
+
+-- Entry actions share Browser's one persistent surface. Merely constructing
+-- KOReader's submenu must not show it or take input away from the host.
+function WebDavManga:_open_plugin_ui(label, callback)
+    return self:_guard(label, function()
+        self.browser:begin_session(true)
+        return callback()
+    end)
+end
+
+function WebDavManga:_close_ui_session()
+    if self.tearing_down or self.closing_ui_session then return true end
+    self.closing_ui_session = true
+    local failed = false
+    local actions = {
+        { "settings", function() return self.settings_ui:close_all() end },
+        { "reader", function() return self.reader:force_close("plugin_teardown") end },
+        { "opds", function() if self.opds_ui then return self.opds_ui:cancel() end end },
+        { "library", function() return self.library_ui:cancel(false) end },
+        { "history grid", function() return self.cover_grid:cancel() end },
+        { "document", function() return self.document_bridge:cancel_all() end },
+        { "offline task", function()
+            if self.offline_manager then self.offline_manager:cancel_all() end
+        end },
+    }
+    for _, action in ipairs(actions) do
+        local ok = self.error_reporter:guard("close plugin UI " .. action[1], function()
+            if action[2]() == false then error("plugin window did not close") end
+            return true
+        end, false, nil, { silent = true })
+        if not ok then failed = true end
+    end
+    self.closing_ui_session = false
+    return not failed
 end
 
 function WebDavManga:_report_silent(stage, error_value)
@@ -820,6 +855,7 @@ function WebDavManga:init()
         settings_ui = self.settings_ui,
         directory_store = self.directory_store,
         ui = deps.browser_ui_adapter,
+        on_session_end = function() return self:_close_ui_session() end,
         bookshelf_directory_store=self.bookshelf and self.bookshelf.directory_store,
         bookshelf_grid=self.bookshelf and self.bookshelf.grid,
         on_bookshelf_refresh=self.bookshelf and function(path) self.bookshelf:refresh(path) end,
@@ -922,6 +958,7 @@ end
 function WebDavManga:open_pointer(path, on_first_page)
     local descriptor, err = self.meguru_pointer:load(path)
     if not descriptor then return nil, err end
+    if self.browser and self.browser.begin_session then self.browser:begin_session(true) end
     local source = self.settings:get_source(descriptor.source_id)
     if not source or source.kind ~= "opds" then
         if self.opds_ui and type(self.opds_ui.show_missing_source) == "function" then
@@ -937,7 +974,7 @@ function WebDavManga:open_pointer(path, on_first_page)
 end
 
 function WebDavManga:onShowWebDavManga()
-    return self:_guard("show library", function()
+    return self:_open_plugin_ui("show library", function()
         if self.opds_ui and self.settings:get_connection().kind == "opds" then
             if self.browser.cancel then self.browser:cancel() end
             return self.opds_ui:show_home()
@@ -959,7 +996,7 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "阅读历史",
                     callback = function()
-                        self:_guard("reading history", function()
+                        self:_open_plugin_ui("reading history", function()
                             self.browser:show_history()
                         end)
                     end,
@@ -967,7 +1004,7 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "缓存漫画",
                     callback = function()
-                        self:_guard("offline manga shelf", function()
+                        self:_open_plugin_ui("offline manga shelf", function()
                             self.library_ui:show_offline_shelf()
                         end)
                     end,
@@ -975,7 +1012,7 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "漫画分类架",
                     callback = function()
-                        self:_guard("category shelf", function()
+                        self:_open_plugin_ui("category shelf", function()
                             self.library_ui:show_home()
                         end)
                     end,
@@ -983,7 +1020,7 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "漫画评分架",
                     callback = function()
-                        self:_guard("rating shelf", function()
+                        self:_open_plugin_ui("rating shelf", function()
                             self.library_ui:show_rating_home()
                         end)
                     end,
@@ -991,7 +1028,7 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "连接设置",
                     callback = function()
-                        self:_guard("connection settings", function()
+                        self:_open_plugin_ui("connection settings", function()
                             self.settings_ui:show_connection()
                         end)
                     end,
@@ -999,25 +1036,25 @@ function WebDavManga:addToMainMenu(menu_items)
                 {
                     text = "阅读设置",
                     callback = function()
-                        self:_guard("reader settings", function() self.settings_ui:show_reader() end)
+                        self:_open_plugin_ui("reader settings", function() self.settings_ui:show_reader() end)
                     end,
                 },
                 {
                     text = "前光与色温",
                     callback = function()
-                        self:_guard("frontlight settings", function() self.settings_ui:show_light() end)
+                        self:_open_plugin_ui("frontlight settings", function() self.settings_ui:show_light() end)
                     end,
                 },
                 {
                     text = "缓存管理",
                     callback = function()
-                        self:_guard("cache settings", function() self.settings_ui:show_cache() end)
+                        self:_open_plugin_ui("cache settings", function() self.settings_ui:show_cache() end)
                     end,
                 },
                 {
                     text = "关于",
                     callback = function()
-                        self:_guard("about", function()
+                        self:_open_plugin_ui("about", function()
                             self.settings_ui:show_about(VERSION, self.diagnostics)
                         end)
                     end,
@@ -1114,10 +1151,6 @@ function WebDavManga:_teardown(force, source)
     stop("cancel browser", function()
         if self.browser then self.browser:cancel() end
     end)
-    stop("close browser menu", function()
-        if self.browser and self.browser.end_session then self.browser:end_session()
-        elseif self.browser and self.browser.close_menu then self.browser:close_menu() end
-    end)
     stop("cancel library ui", function()
         if self.library_ui and self.library_ui.cancel then self.library_ui:cancel(false) end
     end)
@@ -1148,6 +1181,11 @@ function WebDavManga:_teardown(force, source)
     end)
     stop("cancel document bridge", function()
         if self.document_bridge then self.document_bridge:cancel_all() end
+    end)
+    -- Keep the surface until every plugin foreground window is gone.
+    stop("close plugin background", function()
+        if self.browser and self.browser.end_session then self.browser:end_session()
+        elseif self.browser and self.browser.close_menu then self.browser:close_menu() end
     end)
     local stores_called, stores_ok, store_failures = pcall(self._flush_stores, self)
     if not stores_called then

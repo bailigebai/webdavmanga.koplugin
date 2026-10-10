@@ -3,6 +3,7 @@ local Cover = require("webdavmanga.cover")
 local Formats = require("webdavmanga.image_formats")
 local Path = require("webdavmanga.path")
 local SafeCallback = require("webdavmanga.safe_callback")
+local UiRegistry = require("webdavmanga.ui_registry")
 
 -- Keep the shelf usable even if an older installation is missing the optional
 -- generated index; the small built-in table below remains a safe fallback.
@@ -55,6 +56,7 @@ end
 local function default_ui()
     local ConfirmBox = require("ui/widget/confirmbox"); local InfoMessage = require("ui/widget/infomessage")
     local Menu = require("ui/widget/menu"); local UIManager = require("ui/uimanager")
+    local registry = UiRegistry:new(UIManager)
     local adapter = { current_menu = nil }
     function adapter:show_background(model)
         if self.background then return end
@@ -64,6 +66,7 @@ local function default_ui()
     function adapter:close_background()
         local widget = self.background
         self.background = nil
+        registry:close_all()
         if widget then UIManager:close(widget) end
     end
     local function guarded(label, callback, fallback)
@@ -79,9 +82,9 @@ local function default_ui()
         -- consume the tap even when their business operation fails.
         return result == nil and true or (result == false and true or result)
     end
-    function adapter:show_info(message) UIManager:show(InfoMessage:new{ text = message, timeout = 3 }) end
+    function adapter:show_info(message) registry:show(InfoMessage:new{ text = message, timeout = 3 }) end
     function adapter:show_busy(message)
-        local widget = InfoMessage:new{ text = message }; UIManager:show(widget); return { close = function() UIManager:close(widget) end }
+        local widget = InfoMessage:new{ text = message }; registry:show(widget); return { close = function() registry:close(widget) end }
     end
     function adapter:show_progress(model)
         local ok_dialog, ButtonDialog = pcall(require, "ui/widget/buttondialog")
@@ -101,7 +104,7 @@ local function default_ui()
         local function close()
             if closed then return end
             closed = true
-            UIManager:close(widget)
+            registry:close(widget)
         end
         local function cancel()
             close()
@@ -115,7 +118,7 @@ local function default_ui()
             _added_widgets = { progress },
             buttons = {{ { text = "取消打开", callback = cancel } }},
         }
-        UIManager:show(widget)
+        registry:show(widget)
         local current_stage
         local stage_titles = { index = "正在建立页面目录", first_page = "正在验证第一页",
             fallback = "正在切换为完整下载", download = "正在下载完整书籍" }
@@ -137,7 +140,7 @@ local function default_ui()
         }
     end
     function adapter:confirm(model)
-        UIManager:show(ConfirmBox:new{ text = model.text, ok_callback = model.on_confirm,
+        registry:show(ConfirmBox:new{ text = model.text, ok_callback = model.on_confirm,
             cancel_callback = model.on_cancel })
     end
     function adapter:close_menu()
@@ -145,7 +148,7 @@ local function default_ui()
         self.current_menu = nil
         if not menu then return end
         menu.skip_close_callback = true
-        UIManager:close(menu)
+        registry:close(menu)
     end
     function adapter:show_menu(model)
         self:close_menu()
@@ -253,7 +256,7 @@ local function default_ui()
                 end
             end
         end
-        UIManager:show(menu)
+        registry:show(menu)
     end
     function adapter:get_anchor()
         local menu=self.current_menu
@@ -271,6 +274,7 @@ function Browser:new(deps)
     o.settings = assert(deps.settings, "settings is required"); o.settings_ui = assert(deps.settings_ui, "settings UI is required")
     o.directory_store = assert(deps.directory_store, "directory store is required")
     o.ui = deps.ui or default_ui(); o.error_reporter = deps.error_reporter
+    o.on_session_end = deps.on_session_end
     o.network_manager = deps.network_manager or { willRerunWhenConnected = function() return false end }
     o.open_reader = assert(deps.open_reader, "reader callback is required"); o.open_document = deps.open_document; o.progress = deps.progress or { list_history = function() return {} end, remove_history = function() end }
     o.premium_access = deps.premium_access
@@ -418,13 +422,14 @@ function Browser:close_menu()
     return true
 end
 
-function Browser:begin_session()
+function Browser:begin_session(external_entry)
+    if external_entry then self.navigation_path=nil end
     if self.background_open then return end
     if self.ui.show_background then
         self.ui:show_background{
             on_back=self:_callback("back from loading shelf",function()
                 local root=Path.normalize_remote(self.settings:get_connection().root_path)
-                local path=self.navigation_path or self.current_path or root
+                local path=self.navigation_path or root
                 if path==root then return self:end_session() end
                 return self:show_library(false,parent_path(path,root))
             end,true),
@@ -439,6 +444,7 @@ function Browser:end_session()
     if self.cover_grid and self.cover_grid.cancel then self.cover_grid:cancel() end
     self:_close_directories()
     self:close_menu()
+    if self.on_session_end and self.on_session_end() == false then return false end
     self.background_open=false
     self.navigation_path=nil
     if self.ui.close_background then self.ui:close_background() end

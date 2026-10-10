@@ -6,6 +6,7 @@ local Pages = require("webdavmanga.opds_pages")
 local Navigation = require("webdavmanga.series_navigation")
 local Async = require("webdavmanga.async")
 local Url = require("webdavmanga.opds_url")
+local UiRegistry = require("webdavmanga.ui_registry")
 
 local Ui = {}
 Ui.__index = Ui
@@ -58,6 +59,7 @@ local function default_ui()
     local Menu = require("ui/widget/menu")
     local MultiInputDialog = require("ui/widget/multiinputdialog")
     local UIManager = require("ui/uimanager")
+    local registry = UiRegistry:new(UIManager)
     local adapter = {
         current_menu = nil,
         close_reason = setmetatable({}, { __mode = "k" }),
@@ -76,15 +78,20 @@ local function default_ui()
     end
 
     function adapter:show_info(message)
-        UIManager:show(InfoMessage:new{ text = tostring(message), timeout = 3 })
+        registry:show(InfoMessage:new{ text = tostring(message), timeout = 3 })
     end
     function adapter:close_menu(reason)
         local menu = self.current_menu
         if not menu then return false end
         self.close_reason[menu] = reason or "user"
         self.current_menu = nil
-        UIManager:close(menu)
+        registry:close(menu)
         return true
+    end
+    function adapter:close_all()
+        if self.current_menu then self.close_reason[self.current_menu] = "replace" end
+        self.current_menu = nil
+        return registry:close_all()
     end
     function adapter:show_menu(model)
         self:close_menu("replace")
@@ -144,7 +151,7 @@ local function default_ui()
             end,
         }
         self.current_menu = menu
-        UIManager:show(menu)
+        registry:show(menu)
     end
     function adapter:show_input(model)
         local dialog
@@ -165,15 +172,15 @@ local function default_ui()
             title = model.title,
             fields = fields,
             buttons = {{
-                { text = "取消", callback = function() UIManager:close(dialog) end },
+                { text = "取消", callback = function() registry:close(dialog) end },
                 { text = "保存", callback = function()
                     local fields = dialog:getFields()
-                    UIManager:close(dialog)
+                    registry:close(dialog)
                     return model.on_save(fields)
                 end },
             }},
         }
-        UIManager:show(dialog)
+        registry:show(dialog)
     end
     function adapter:show_resume(model)
         local ButtonDialog = require("ui/widget/buttondialog")
@@ -182,17 +189,17 @@ local function default_ui()
         for _, item in ipairs(model.items) do
             buttons[#buttons + 1] = {{ text = item.text, callback = function()
                 local result = item.callback()
-                UIManager:close(dialog)
+                registry:close(dialog)
                 return result
             end }}
         end
         buttons[#buttons + 1] = {{ text = "取消", callback = function()
             model.on_cancel()
-            UIManager:close(dialog)
+            registry:close(dialog)
         end }}
         dialog = ButtonDialog:new{ title = model.title, buttons = buttons,
             dismissable = true, tap_close_callback = model.on_cancel }
-        UIManager:show(dialog)
+        registry:show(dialog)
         return true
     end
     return adapter
@@ -455,7 +462,8 @@ function Ui:cancel()
     self.descriptor_generation = (self.descriptor_generation or 0) + 1
     if self.pages then self.pages:cancel_all() end
     self.current = nil
-    if self.ui.close_menu then self.ui:close_menu("replace") end
+    if self.ui.close_all then self.ui:close_all()
+    elseif self.ui.close_menu then self.ui:close_menu("replace") end
     return true
 end
 

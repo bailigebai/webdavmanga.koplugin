@@ -1,6 +1,6 @@
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.20，2026-10-09 漫画书架背景与文档封面，设备测试版**。进入与返回期间保留插件背景，补齐常见漫画文件首图封面；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.21，2026-10-10 统一漫画插件背景，设备测试版**。OPDS、设置、分类/评分/缓存架和指针阅读统一保留插件背景；退出时背景最后关闭；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
@@ -8,16 +8,25 @@
 
 本版是**设备测试版，尚未安装设备验收**。完整回归结果见验证记录；Kindle 书架与清理操作、触控、墨水屏和性能仍需真机验收。
 
-请在 [v0.4.20 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.20) 下载 `webdavmanga.koplugin-v0.4.20-20261009-bookshelf-document-covers.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
+请在 [v0.4.21 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.21) 下载 `webdavmanga.koplugin-v0.4.21-20261010-plugin-background.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
 
 1. 完全退出 KOReader，备份原插件，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 将完整文件夹复制至 `koreader/plugins/`，覆盖插件程序文件。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录。
-4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.20`，打开测试目录逐个验证七份原文件。
+4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.21`，打开测试目录逐个验证七份原文件。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
 qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更新后完全退出并重启 KOReader。
+
+## v0.4.21：所有插件入口统一背景
+
+- 直接打开 OPDS、各类设置和书架都先进入同一个不透明全屏插件背景；异步请求和窗口切换期间持续保留。
+- 退出先取消任务并关闭全部已登记弹窗，再撤背景；旧回调不能重新打开窗口。只有明确退出后显示 KOReader。
+- 退出取消普通连接测试、待完成授权和整部缓存任务，已缓存页面保留；迟到的联网或授权结果不会重新打开阅读器。
+- 保留 0.4.20 的常见漫画文件封面能力和独立缓存，不改格式解析或引入依赖。
+
+[本版改动、验证与验收](docs/releases/v0.4.21.md)。单独打开设置并关闭弹窗后，可用背景的返回键或右上角关闭退出；实机墨水屏效果仍待验收。
 
 ## v0.4.20：漫画书架背景与文档封面
 

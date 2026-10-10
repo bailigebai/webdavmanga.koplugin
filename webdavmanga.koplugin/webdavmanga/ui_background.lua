@@ -25,7 +25,7 @@ function Background.new(model)
         events["Consume"..gesture]={GestureRange:new{ges=gesture,range=dimen},event="Consume"}
     end
     return Surface:new{dimen=dimen,ges_events=events,key_events={Back={{"Back"}}},
-        TitleBar:new{title="漫画书架",fullscreen=true,
+        TitleBar:new{title="WebDAV 漫画",fullscreen=true,
             close_callback=model.on_close or model.on_back}}
 end
 return Background

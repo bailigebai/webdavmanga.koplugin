@@ -284,7 +284,7 @@ local function default_ui()
         return continuation()
     end
     function adapter:show_info(message, timeout)
-        UIManager:show(InfoMessage:new{ text = message, timeout = timeout or 3 })
+        registry:show(InfoMessage:new{ text = message, timeout = timeout or 3 })
     end
     function adapter:show_reader_help(text)
         local TextViewer = require("ui/widget/textviewer")
@@ -2323,14 +2323,19 @@ function UiSettings:show_license(model)
     local activation_in_flight = false
     local activation_handle
     local activation_generation = 0
+    local closed = false
+    self.activation_requests = self.activation_requests or {}
+    self.activation_requests[request] = true
     local activate = request.activate
     request.activate = function(key, callback)
-        if activation_in_flight then return false end
+        if closed or activation_in_flight then return false end
         activation_in_flight = true
         activation_generation = activation_generation + 1
         local generation = activation_generation
+        local settled = false
         local function finish(ok, result)
-            if generation ~= activation_generation then return end
+            if closed or settled or generation ~= activation_generation then return end
+            settled = true
             if ok then
                 if activation_handle then activation_in_flight = false end
                 activation_handle = nil
@@ -2347,7 +2352,7 @@ function UiSettings:show_license(model)
             if callback then callback(false, "service_unavailable") end
             return false
         end
-        if activation_in_flight and generation == activation_generation
+        if not settled and activation_in_flight and generation == activation_generation
             and type(result) == "table" then
             activation_handle = result
         end
@@ -2364,17 +2369,30 @@ function UiSettings:show_license(model)
         end
         return true
     end
+    local on_close = request.on_close
+    request.on_close = function()
+        if closed then return end
+        closed = true
+        request.cancel_activation()
+        self.activation_requests[request] = nil
+        return on_close()
+    end
+    request.close_session = function()
+        closed = true
+        request.cancel_activation()
+        self.activation_requests[request] = nil
+    end
     if self.ui and type(self.ui.show_license) == "function" then
         return self.ui:show_license(request)
     end
     if self.ui and type(self.ui.show_info) == "function" then
         self.ui:show_info("当前界面适配器不支持授权设置。")
     end
+    request.close_session()
     return false
 end
 
-function UiSettings:_invalidate_opds_test(lifecycle)
-    lifecycle = lifecycle or self.opds_test_lifecycle
+function UiSettings:_invalidate_connection_test(lifecycle)
     if not lifecycle then return end
     lifecycle.generation = lifecycle.generation + 1
     local handle, busy = lifecycle.handle, lifecycle.busy
@@ -2384,10 +2402,17 @@ function UiSettings:_invalidate_opds_test(lifecycle)
 end
 
 function UiSettings:close_all()
+    self.session_epoch = (self.session_epoch or 0) + 1
+    for request in pairs(self.activation_requests or {}) do request.close_session() end
+    if self.connection_test_lifecycle then
+        self.connection_test_lifecycle.closed = true
+        self:_invalidate_connection_test(self.connection_test_lifecycle)
+        self.connection_test_lifecycle = nil
+    end
     if self.bookshelf_ui then self.bookshelf_ui:close_all() end
     if self.opds_test_lifecycle then
         self.opds_test_lifecycle.closed = true
-        self:_invalidate_opds_test()
+        self:_invalidate_connection_test(self.opds_test_lifecycle)
         self.opds_test_lifecycle = nil
     end
     if self.ui and type(self.ui.close_all) == "function" then
@@ -2395,6 +2420,45 @@ function UiSettings:close_all()
         if not ok or result == false then return false end
     end
     return self:_close_filter_preview()
+end
+
+-- A network gate may resume after the whole plugin has exited. Both start and
+-- completion belong to the same test, even when the async adapter finishes inline.
+function UiSettings:_start_connection_test(label, message, work, on_result, use_network)
+    self:_invalidate_connection_test(self.connection_test_lifecycle)
+    local lifecycle = { generation = 0, closed = false, started = false }
+    self.connection_test_lifecycle = lifecycle
+    local function is_current()
+        return not lifecycle.closed and self.connection_test_lifecycle == lifecycle
+    end
+    local start = self:_callback("start " .. label, function()
+        if not is_current() or lifecycle.started then return false end
+        lifecycle.started = true
+        local busy = self.ui:show_busy(message)
+        lifecycle.busy = busy
+        local settled = false
+        local handle = self.async.run(work, self:_callback("finish " .. label, function(...)
+            settled = true
+            if not is_current() then return false end
+            lifecycle.handle, lifecycle.busy = nil, nil
+            if busy and busy.close then busy.close() end
+            return on_result(...)
+        end))
+        if not settled and is_current() then
+            lifecycle.handle = handle
+        elseif not settled and handle and type(handle.cancel) == "function" then
+            handle:cancel()
+        end
+    end)
+    if use_network then
+        local deferred = SafeCallback.call(self.error_reporter or self.ui,
+            label .. " network gate", function()
+                return self.network_manager:willRerunWhenConnected(start)
+            end, false)
+        if deferred then return true end
+    end
+    start()
+    return true
 end
 
 function UiSettings:_run_nodeshare_connection_test(values)
@@ -2414,17 +2478,15 @@ function UiSettings:_run_nodeshare_connection_test(values)
         return false
     end
 
-    local start = self:_callback("start NodeShare TCP test", function()
-        local busy = self.ui:show_busy("正在检测 TCP 组网并验证 WebDAV…")
-        self.async.run(function()
+    return self:_start_connection_test("NodeShare TCP test", "正在检测 TCP 组网并验证 WebDAV…",
+        function()
             local reachable, tcp_error = self.nodeshare:probe(values.server_url)
             if not reachable then
                 return { ok = false, stage = "tcp", error = tcp_error }
             end
             local ok, webdav_error = self.client_factory(values):test_connection()
             return { ok = ok == true, stage = "webdav", error = webdav_error }
-        end, self:_callback("finish NodeShare TCP test", function(async_ok, result, async_error)
-            if busy and busy.close then busy.close() end
+        end, function(async_ok, result, async_error)
             if not async_ok then
                 self.ui:show_info(Errors.message{ code = "transport", detail = async_error })
             elseif result and result.ok then
@@ -2434,15 +2496,7 @@ function UiSettings:_run_nodeshare_connection_test(values)
             else
                 self.ui:show_info(Errors.message(result and result.error))
             end
-        end))
-    end)
-    local deferred = SafeCallback.call(self.error_reporter or self.ui,
-        "NodeShare TCP test network gate", function()
-            return self.network_manager:willRerunWhenConnected(start)
-        end, false)
-    if deferred then return true end
-    start()
-    return true
+        end, true)
 end
 
 function UiSettings:_show_nodeshare_connection_dialog(on_saved, source_id, is_new)
@@ -2511,13 +2565,11 @@ function UiSettings:_run_connection_test(values)
             self.ui:show_info(validation_message("invalid_local_path"))
             return false
         end
-        local start = self:_callback("start local connection test", function()
-            local busy = self.ui:show_busy("正在测试 Kindle 本地目录…")
-            self.async.run(function()
+        return self:_start_connection_test("local connection test", "正在测试 Kindle 本地目录…",
+            function()
                 local ok, err = self.client_factory(values):test_connection()
                 return { ok = ok == true, error = err }
-            end, self:_callback("finish local connection test", function(async_ok, result, async_error)
-                if busy and busy.close then busy.close() end
+            end, function(async_ok, result, async_error)
                 if not async_ok then
                     self.ui:show_info(Errors.message({ code = "local_path", detail = async_error }))
                 elseif result and result.ok then
@@ -2525,23 +2577,18 @@ function UiSettings:_run_connection_test(values)
                 else
                     self.ui:show_info(Errors.message(result and result.error))
                 end
-            end))
-        end)
-        start()
-        return true
+            end, false)
     end
     local valid, validation_error = is_connection_shape_valid(values)
     if not valid then
         self.ui:show_info(validation_message(validation_error))
         return false
     end
-    local start = self:_callback("start connection test", function()
-        local busy = self.ui:show_busy("正在测试 WebDAV 连接…")
-        self.async.run(function()
+    return self:_start_connection_test("connection test", "正在测试 WebDAV 连接…",
+        function()
             local ok, err = self.client_factory(values):test_connection()
             return { ok = ok == true, error = err }
-        end, self:_callback("finish connection test", function(async_ok, result, async_error)
-            if busy and busy.close then busy.close() end
+        end, function(async_ok, result, async_error)
             if not async_ok then
                 self.ui:show_info(Errors.message{ code = "transport", detail = async_error })
             elseif result and result.ok then
@@ -2549,14 +2596,7 @@ function UiSettings:_run_connection_test(values)
             else
                 self.ui:show_info(Errors.message(result and result.error))
             end
-        end))
-    end)
-    local deferred = SafeCallback.call(self.error_reporter or self.ui, "connection test network gate", function()
-        return self.network_manager:willRerunWhenConnected(start)
-    end, false)
-    if deferred then return true end
-    start()
-    return true
+        end, true)
 end
 
 function UiSettings:_run_opds_connection_test(values, on_detected, lifecycle, generation)
@@ -2638,12 +2678,12 @@ function UiSettings:_show_opds_connection_dialog(on_saved, source_id, is_new)
     local detected_kind, tested_identity
     if self.opds_test_lifecycle then
         self.opds_test_lifecycle.closed = true
-        self:_invalidate_opds_test()
+        self:_invalidate_connection_test(self.opds_test_lifecycle)
     end
     local lifecycle = { generation = 0, closed = false }
     self.opds_test_lifecycle = lifecycle
     local function invalidate()
-        self:_invalidate_opds_test(lifecycle)
+        self:_invalidate_connection_test(lifecycle)
     end
     local active_id = self.settings:get_active_source_id()
     self.ui:show_opds_connection{
@@ -3838,11 +3878,13 @@ function UiSettings:_start_offline_cache(manga)
         return false
     end
     self.last_offline_manga = copy_table(manga)
+    local epoch = self.session_epoch or 0
     self.ui:show_info("已开始缓存整部漫画。可在“缓存管理 → 整部漫画缓存”查看进度或取消。", 3)
     local handle, err = self.offline_manager:start(manga, {
         on_progress = function(summary) self.offline_latest_summary = summary end,
         on_complete = function(summary)
             self.offline_latest_summary = summary
+            if epoch ~= (self.session_epoch or 0) then return end
             self.ui:show_info(offline_completion_message(summary))
         end,
     })

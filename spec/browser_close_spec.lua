@@ -115,8 +115,13 @@ expect(#closed == closed_before_close and browser.current_path == nested,
     "requesting close must keep the current bookshelf visible until confirmation")
 
 confirm.ok_callback()
-expect(closed[#closed-1] == nested_menu and closed[#closed].kind=="plugin_background",
-    "confirming close must dismiss both the bookshelf menu and its background")
+local menu_closed,confirm_closed=false,false
+for _,widget in ipairs(closed) do
+    if widget==nested_menu then menu_closed=true end
+    if widget==confirm then confirm_closed=true end
+end
+expect(menu_closed and confirm_closed and closed[#closed].kind=="plugin_background",
+    "confirming close dismisses the menu and transient confirmation before its background")
 expect(cancel_count > 0 and close_count > 0,
     "confirming close must cancel active browsing and release directory handles")
 
