@@ -117,6 +117,8 @@ local function default_backend()
         PIX *pixRead(const char *filename);
         PIX *pixReadMem(const l_uint8 *data, size_t size);
         PIX *pixScaleToSize(PIX *pixs, l_int32 wd, l_int32 hd);
+        PIX *pixCreate(l_int32 width, l_int32 height, l_int32 depth);
+        l_ok pixSetPixel(PIX *pix, l_int32 x, l_int32 y, l_uint32 val);
     ]])
     pcall(ffi.cdef,
         "PIX *pixConvertTo8(PIX *pixs, l_int32 cmapflag);")
@@ -141,7 +143,34 @@ local function default_backend()
             local gray, inverted, binary, components
             local result, reason
             local worked = pcall(function()
-                if type(raster.path) == "string" and raster.path ~= "" then
+                local dark = false
+                if raster.buffer then
+                    -- Never decode a large original again for native detection.
+                    -- Borrow the displayed page and bound the native allocation.
+                    local buffer = raster.buffer
+                    local bw, bh = finite_number(buffer:getWidth()), finite_number(buffer:getHeight())
+                    local mw, mh = finite_number(raster.max_width), finite_number(raster.max_height)
+                    if not bw or not bh or not mw or not mh or bw < 1 or bh < 1
+                        or mw < 1 or mh < 1 then error('invalid_native_raster') end
+                    local scale = math.min(1, 960 / bw, 960 / bh, mw / bw, mh / bh)
+                    local w, h = math.max(1, math.floor(bw * scale)), math.max(1, math.floor(bh * scale))
+                    decoded = lept.pixCreate(w, h, 8)
+                    if decoded == nil then error('native_raster_allocation_failed') end
+                    local dark_edges, edges = 0, 0
+                    for y = 0, h - 1 do for x = 0, w - 1 do
+                        local pixel = buffer:getPixel(math.min(bw - 1, math.floor((x + .5) * bw / w)),
+                            math.min(bh - 1, math.floor((y + .5) * bh / h)))
+                        local gray = finite_number(type(pixel) == 'number' and pixel or pixel:getColor8().a)
+                        if not gray then error('invalid_native_pixel') end
+                        gray = math.max(0, math.min(255, math.floor(gray)))
+                        if lept.pixSetPixel(decoded, x, y, gray) ~= 0 then error('native_pixel_write_failed') end
+                        if x == 0 or y == 0 or x == w - 1 or y == h - 1 then
+                            edges = edges + 1
+                            if gray < 128 then dark_edges = dark_edges + 1 end
+                        end
+                    end end
+                    dark = dark_edges > edges / 2
+                elseif type(raster.path) == "string" and raster.path ~= "" then
                     decoded = lept.pixRead(raster.path)
                 elseif type(raster.bytes) == "string" and raster.bytes ~= "" then
                     decoded = lept.pixReadMem(
@@ -217,9 +246,11 @@ local function default_backend()
                 else
                     gray = lept.pixConvertTo8(working, 0)
                 end
-                inverted = gray ~= nil and lept.pixInvert(nil, gray) or nil
+                inverted = gray ~= nil and (dark and lept.pixClone(gray) or lept.pixInvert(nil, gray)) or nil
                 binary = inverted ~= nil
                     and lept.pixThresholdToBinary(inverted, threshold) or nil
+                -- Connected components treat 1 as ink, not the page background.
+                if binary ~= nil then lept.pixInvert(binary, binary) end
                 components = binary ~= nil
                     and lept.pixConnCompBB(binary, connectivity) or nil
                 if components == nil then
@@ -229,6 +260,7 @@ local function default_backend()
 
                 local boxes = {}
                 local count = tonumber(lept.boxaGetCount(components)) or 0
+                if count > 4096 then reason = 'too_many_panels'; return end
                 local x = ffi.new("l_int32[1]")
                 local y = ffi.new("l_int32[1]")
                 local w = ffi.new("l_int32[1]")
@@ -273,6 +305,11 @@ function PanelDetector.detect(raster, options)
         if not panels then return nil,reason end
         return PanelDetector.sort(panels,options.direction or "normal")
     end
+    return PanelDetector.detect_native(raster, options)
+end
+
+function PanelDetector.detect_native(raster, options)
+    options = options or {}
     local backend, backend_err = options.backend, nil
     if not backend then backend, backend_err = default_backend() end
     if not backend then return nil, backend_err or "leptonica_unavailable" end

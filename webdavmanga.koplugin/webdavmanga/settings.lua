@@ -3,6 +3,7 @@ local GrayEnhance = require("webdavmanga.gray_enhance")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 
 local PanelOptions = require("webdavmanga.panel_options")
+local Dynamic = require('webdavmanga.dynamic_panel_zoom')
 
 local Settings = {}
 Settings.__index = Settings
@@ -684,6 +685,7 @@ function Settings:get_reader()
     reader.tone_adjust_sample_path = GrayEnhance.normalize_sample_path(
         reader.tone_adjust_sample_path) or ""
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
+    Dynamic.normalize(reader)
     reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
     if not one_of(reader.bubble_zoom_trigger,{"hold","tap","both"}) then reader.bubble_zoom_trigger="both" end
     PanelOptions.normalize(reader)
@@ -710,7 +712,10 @@ function Settings:set_reader(values)
     local has_segmented_prefetch = values.prefetch_first_pages ~= nil
         or values.prefetch_near_count ~= nil
         or values.prefetch_far_count ~= nil
-    local reader = with_defaults(self:get_reader(), values)
+    local previous = self:get_reader()
+    local reader = with_defaults(previous, values)
+    if not Dynamic.validate(reader) then return nil, 'invalid_dynamic_panel_settings' end
+    Dynamic.resolve(reader, previous)
     if type(reader.graydither_enabled) ~= "boolean"
         or type(reader.graydither_refresh_enabled) ~= "boolean" then
         return nil, "invalid_graydither_settings"
@@ -1183,6 +1188,7 @@ local PANEL_CHOICES={
     panel_experimental_sort={false,true},
 }
 for _,f in ipairs(PanelOptions.fields) do PANEL_CHOICES[f.key]=f.choices end
+for _,f in ipairs(Dynamic.fields) do PANEL_CHOICES[f.key]=f.choices end
 local function book_key(key)
     return type(key)=="string" and #key==32 and key:match("^%x+$") and key:lower()
 end
@@ -1193,13 +1199,13 @@ local function panel_values(values,strict)
         if PANEL_CHOICES[k] and one_of(v,PANEL_CHOICES[k]) then result[k]=v
         elseif strict then return nil end
     end
-    return result
+    return Dynamic.override(result)
 end
 function Settings:panel_values(values) return panel_values(values,false) end
 function Settings:get_panel_reader(key)
     local reader=self:get_reader()
     for k,v in pairs(self:get_panel_overrides(key)) do reader[k]=v end
-    return reader
+    return Dynamic.normalize(reader)
 end
 function Settings:get_panel_overrides(key)
     key=book_key(key)

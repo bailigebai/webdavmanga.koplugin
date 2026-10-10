@@ -955,31 +955,80 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
 end
 
 function ReaderShell:show_panel_zoom(model)
-    if self.closed then return false end
-    if self.panel_zoom then return true end
+    if not self.closed and self.panel_zoom and (not model or model.owned_buffer~=true) then return true end
     if not model or not model.buffer then return false end
-    local ImageViewer = require("ui/widget/imageviewer")
-    local viewer = ImageViewer:new{
-        image = model.buffer, image_disposable = false,
-        fullscreen = true, with_title_bar = false, buttons_visible = false,
-        scale_factor = model.initial_zoom, image_padding = model.padding,
-    }
-    local on_close_widget, closed = viewer.onCloseWidget, false
-    viewer.onCloseWidget = function(widget)
-        if closed then return end
-        closed = true
-        invoke_function(on_close_widget, widget)
-        self.panel_zoom = nil
+    local released=false
+    local function dispose()
+        if model.owned_buffer and not released then
+            released=true
+            pcall(model.buffer.free,model.buffer)
+        end
+    end
+    -- Owned images transfer here even when construction fails. Existing
+    -- intelligent-panel zoom still borrows its session's current image.
+    if self.closed then dispose();return false end
+    if self.panel_zoom then dispose();return model.owned_buffer~=true end
+    local ok,viewer=pcall(function()
+        local ImageViewer = require("ui/widget/imageviewer")
+        return ImageViewer:new{
+            image = model.buffer, image_disposable = false,
+            fullscreen = true, with_title_bar = false, buttons_visible = model.buttons_visible==true,
+            scale_factor = model.initial_zoom, image_padding = model.padding,
+            _center_x_ratio=model.center_x_ratio or .5,_center_y_ratio=model.center_y_ratio or .5,
+        }
+    end)
+    if not ok or not viewer then
+        dispose()
         if not self.closed then invoke_function(model.on_close) end
+        return false
+    end
+    local on_close_widget, notified, finished = viewer.onCloseWidget, false, false
+    local manager=self.ui_manager.ui_manager or self.ui_manager
+    local function listed()
+        for _,window in ipairs(manager._window_stack or {}) do
+            if window.widget==viewer then return true end
+        end
+        return false
+    end
+    local function finish()
+        -- KOReader sends CloseWidget before removing the window. A failed
+        -- close may leave it visible, so never free pixels still on the stack.
+        if finished or (model.owned_buffer and listed()) then return false end
+        finished=true
+        if self.panel_zoom==viewer then self.panel_zoom = nil end
+        dispose()
+        if not self.closed then invoke_function(model.on_close) end
+        return true
+    end
+    viewer._webdav_finish_close=finish
+    viewer.onCloseWidget = function(widget)
+        if not notified then
+            notified=true
+            invoke_function(on_close_widget,widget)
+        end
+        if not finish() and not finished and self.scheduler and self.scheduler.nextTick then
+            pcall(self.scheduler.nextTick,self.scheduler,finish)
+        end
     end
     self.panel_zoom = viewer
-    self.ui_manager:show(viewer)
+    local shown,result=pcall(self.ui_manager.show,self.ui_manager,viewer)
+    if not shown or result==false then
+        local closed,value=pcall(self.ui_manager.close,self.ui_manager,viewer)
+        if not listed() and ((closed and value~=false) or type(manager._window_stack)=='table') then
+            viewer:onCloseWidget()
+        end
+        return false
+    end
     return true
 end
 
 function ReaderShell:close_panel_zoom()
     local viewer = self.panel_zoom
-    if viewer then self.ui_manager:close(viewer) end
+    if viewer then
+        local ok,result=pcall(self.ui_manager.close,self.ui_manager,viewer)
+        if not ok or result==false then return false end
+        if viewer._webdav_finish_close then return viewer._webdav_finish_close() or self.panel_zoom~=viewer end
+    end
     return true
 end
 

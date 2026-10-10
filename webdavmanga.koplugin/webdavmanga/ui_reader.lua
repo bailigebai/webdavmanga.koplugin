@@ -6,6 +6,7 @@ local PageProcessor = require("webdavmanga.page_processor")
 local PageSequence = require("webdavmanga.page_sequence")
 local Quadrant = require("webdavmanga.quadrant_zoom")
 local BubbleZoom = require("webdavmanga.bubble_zoom")
+local Dynamic = require('webdavmanga.dynamic_panel_zoom')
 local SafeCallback = require("webdavmanga.safe_callback")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 local ReaderShell = require("webdavmanga.ui_reader_shell")
@@ -25,6 +26,14 @@ local panel_failure_messages = {
     panel_render_failed = "分格显示失败，已返回整页",
     panel_content_uncovered = "部分内容无法可靠归入分格，已返回整页以保留对白。",
     panel_layout_uncertain = "分格布局不明确，已返回整页。",
+}
+local dynamic_failure_messages={
+    leptonica_unavailable='动态面板原生引擎不可用，已返回整页；智能分格可单独使用。',
+    no_panels='未识别到有效动态面板，本页显示整页，下一页继续检测。',
+    too_many_panels='动态面板候选过多，本页显示整页，下一页继续检测。',
+    panel_engine_unsupported='动态面板需默认图片引擎，请先切换引擎。',
+    panel_render_failed='动态面板显示失败，已返回整页。',
+    panel_source_unavailable='动态面板加载失败，已返回整页。',
 }
 
 local function copy_table(source)
@@ -1617,9 +1626,11 @@ function Reader:_quadrant_input_ready(source_shell)
 end
 
 function Reader:onTwoFingerTap(source_shell, gesture)
-    if source_shell==self.shell and self.panel_session then return self:toggle_controls("panel_view") end
+    if source_shell==self.shell and self.panel_session then
+        return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
+    end
     if self.webtoon_session or not self:_quadrant_input_ready(source_shell) then return false end
-    if self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
+    if self.reader_settings.dynamic_panel_zoom_enabled~=true and self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
         and self.reader_settings.panel_entry_gesture~=nil then return self:enter_panel_mode("first") end
     if self.quadrant_hold then return true end
     local width, height = self.shell:get_content_size()
@@ -1773,17 +1784,18 @@ function Reader:onTap(_, gesture)
         and self:show_bubble_at(gesture,true) then return true end
     if self.panel_entry then
         if x>=width/3 and x<=width*2/3 and y>=height/3 and y<=height*2/3 then
-            return self:toggle_controls("panel_view")
+            return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
         end
         if (not self.panel_session and not self.panel_entry.whole_page)
             or (self.panel_session and self.panel_session.render_options.view=="free") then return true end
-        local vertical=self.reader_settings.panel_navigation=="vertical"
+        local vertical=not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_navigation=="vertical"
         local coordinate,size=vertical and y or x,vertical and height or width
         local edge=size*(self.reader_settings.panel_edge_percent or 33)/100
-        if coordinate>=edge and coordinate<=size-edge then return self:toggle_controls("panel_view") end
-        if self.reader_settings.panel_tap_enabled==false then return true end
+        if coordinate>=edge and coordinate<=size-edge then return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view') end
+        if not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_tap_enabled==false then return true end
         local delta=coordinate<size/3 and -1 or 1
-        if self.reader_settings.panel_reverse_navigation then delta=-delta end
+        if self.reader_settings.dynamic_panel_zoom_enabled and self:_panel_direction()=='manga' then delta=-delta end
+        if not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_reverse_navigation then delta=-delta end
         return self:_move_panel(delta)
     end
     if x >= width / 3 and x <= width * 2 / 3
@@ -1816,8 +1828,9 @@ function Reader:onHold(_, gesture)
         if self.shell then self.shell.bubble_hold_consumed = consumed or nil end
         if consumed then return true end
     end
-    if not self.reader_settings or self.reader_settings.panel_zoom_enabled ~= true then return false end
-    if self.reader_settings.panel_entry_gesture=="two_finger_tap" then return false end
+    if not Dynamic.enabled(self.reader_settings) then return false end
+    if self.reader_settings.dynamic_panel_zoom_enabled~=true
+        and self.reader_settings.panel_entry_gesture=="two_finger_tap" then return false end
     if self.shell and self.shell.current_model and self.shell.current_model.kind ~= "page" then return false end
     local session = self.panel_session
     if session and session:is_active() then
@@ -1826,6 +1839,7 @@ function Reader:onHold(_, gesture)
         session:release_next()
         local current = session:current()
         if not current or not current.buffer then return false end
+        if self.reader_settings.dynamic_panel_zoom_enabled then return self:_dynamic_free_zoom(session,current) end
         local serial, generation = self.request_serial, self.generation
         local width, height = self.shell:get_content_size()
         return self.shell:show_panel_zoom{
@@ -1852,6 +1866,48 @@ function Reader:onBubbleHoldPan(source_shell)
         and source_shell.bubble_hold_consumed == true
 end
 
+function Reader:_dynamic_free_zoom(session,current)
+    -- Expand real source pixels; blank padding cannot recover clipped speech.
+    local margin=self.reader_settings.dynamic_panel_hold_margin_percent or 10
+    local serial,generation=self.request_serial,self.generation
+    local options={
+        view='cut',rotation=0,show_adjacent=true,protect_text=false,margin_percent=margin,
+        screen_width=session.screen_width,screen_height=session.screen_height,
+    }
+    local ok,buffer=pcall(session.handle.render,session.handle,current.panel,options)
+    if not ok or not buffer then
+        self.shell:show_status('动态自由缩放加载失败，已保留当前面板。',2)
+        session:_schedule_next()
+        return false
+    end
+    if self.closing or self.panel_session~=session or not session:is_active()
+        or self.request_serial~=serial or self.generation~=generation then
+        pcall(buffer.free,buffer)
+        return false
+    end
+    local center_x,center_y=.5,.5
+    local camera=session.handle:camera(current.panel,options)
+    if camera then
+        local crop=session.handle.crop_normalized
+        center_x=(crop.x+(current.panel.x+current.panel.w/2)*crop.w-camera.box.x)/camera.box.w
+        center_y=(crop.y+(current.panel.y+current.panel.h/2)*crop.h-camera.box.y)/camera.box.h
+    end
+    return self.shell:show_panel_zoom{
+        buffer=buffer,owned_buffer=true,buttons_visible=true,
+        center_x_ratio=center_x,center_y_ratio=center_y,
+        initial_zoom=self.reader_settings.dynamic_panel_initial_zoom or 1.2,padding=0,
+        on_close=function()
+            if self.closing or self.panel_session~=session or self.generation~=generation
+                or self.request_serial~=serial then return end
+            local panel=session:current()
+            if panel then
+                self:_show_panel(panel.buffer,panel.panel,panel.index,panel.count)
+                session:_schedule_next()
+            end
+        end,
+    }
+end
+
 function Reader:_show_panel(buffer, _panel, index, count, render_options)
     if self.closing or not self.shell or not self.position then return false end
     render_options = render_options or (self.panel_session and self.panel_session.render_options)
@@ -1865,7 +1921,8 @@ function Reader:_show_panel(buffer, _panel, index, count, render_options)
     if shown == false then return false end
     if self.panel_entry then self.panel_entry.displayed = true end
     -- A failed status redraw must not reject an already displayed allocation.
-    pcall(self.shell.show_status,self.shell,("分格 %d / %d"):format(index, count))
+    pcall(self.shell.show_status,self.shell,(self.reader_settings.dynamic_panel_zoom_enabled
+        and '动态面板 %d / %d' or '分格 %d / %d'):format(index, count))
     return true
 end
 
@@ -1874,10 +1931,11 @@ function Reader:enter_panel_mode(desired)
         return self.shell:show_status("请先将图片显示切换为整页，再使用智能分格。")
     end
     if self.closing or not self.page_buffer or not self.position or self.pending_request
-        or self.panel_restore or self.reader_settings.panel_zoom_enabled ~= true
+        or self.panel_restore or not Dynamic.enabled(self.reader_settings)
         or not self.panel_source or not self.panel_detector then return false end
     if self.reader_settings.image_engine == "memory" then
-        self.shell:show_status(panel_failure_messages.panel_engine_unsupported)
+        self.shell:show_status((self.reader_settings.dynamic_panel_zoom_enabled
+            and dynamic_failure_messages or panel_failure_messages).panel_engine_unsupported)
         return false
     end
     if self.panel_session then return true end
@@ -1894,9 +1952,10 @@ function Reader:enter_panel_mode(desired)
             pan_y = self.pan_y, current_segments = self.current_segments, serial = self.request_serial,
             viewport = self.page_viewport }
     end
+    self.panel_entry.mode=self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent'
     self.panel_entry.whole_page = nil
     self.current_segments, self.pan_y = { "whole" }, 0
-    self.shell:show_status("正在识别分格")
+    self.shell:show_status(self.reader_settings.dynamic_panel_zoom_enabled and '正在原生检测动态面板' or '正在识别分格')
     local width, height = self.shell:get_content_size()
     local shell = self.shell
     local schedule
@@ -1906,7 +1965,8 @@ function Reader:enter_panel_mode(desired)
         schedule = function(callback) return shell.scheduler:scheduleIn(0, callback) end
     end
     local ok, session = pcall(self.panel_session_factory, {
-        source = self.panel_source, detector = self.panel_detector, schedule = schedule,
+        source = self.panel_source, detector = self.reader_settings.dynamic_panel_zoom_enabled
+            and Dynamic or self.panel_detector, schedule = schedule,
         schedule_frame=shell.scheduler and shell.scheduler.scheduleIn and function(delay,callback)
             return shell.scheduler:scheduleIn(delay,callback)
         end,
@@ -1924,7 +1984,7 @@ function Reader:enter_panel_mode(desired)
     local function active()
         return self.panel_session == session and self:_active(serial, generation)
     end
-    local started = session:start({
+    local request = {
         generation = generation, image = self:_image(self.position.index),
         engine = "default",
         page_path = self.page_path, page_buffer = self.page_buffer,
@@ -1941,7 +2001,9 @@ function Reader:enter_panel_mode(desired)
         transition_duration=self.reader_settings.panel_transition_duration,
         transition_frames=self.reader_settings.panel_transition_frames,
         cross_page=self.panel_cross_page==true and self.reader_settings.panel_transition_cross_page==true,
-    }, {
+    }
+    if self.reader_settings.dynamic_panel_zoom_enabled then Dynamic.request(self.reader_settings,request) end
+    local started = session:start(request, {
         on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count, render_options)
             if not active() then return false end
             return self:_show_panel(buffer, panel, index, count, render_options)
@@ -2002,6 +2064,7 @@ end
 function Reader:exit_panel_mode()
     local entry = self.panel_entry
     if not entry then return true end
+    if self.shell.panel_zoom and not self.shell:close_panel_zoom() then return false end
     local session = self.panel_session
     local retained = entry.serial == self.request_serial and not self.pending_request
     local segments, pan_y = self.current_segments, self.pan_y
@@ -2052,8 +2115,9 @@ function Reader:_panel_fallback(reason)
         self.panel_session, self.panel_resume, self.panel_pan = nil, nil, nil
         if session then session:close() end
     elseif not self:exit_panel_mode() then return false end
-    if self.shell then self.shell:show_status(panel_failure_messages[reason]
-        or panel_failure_messages.panel_source_unavailable) end
+    local messages=self.reader_settings.dynamic_panel_zoom_enabled and dynamic_failure_messages or panel_failure_messages
+    if self.shell then self.shell:show_status(messages[reason]
+        or messages.panel_source_unavailable) end
     return true
 end
 
@@ -2106,8 +2170,8 @@ function Reader:onSwipe(_, gesture)
             end
             return true
         end
-        if self.reader_settings.panel_swipe_enabled==false then return true end
-        local vertical=self.reader_settings.panel_navigation=="vertical"
+        if not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_swipe_enabled==false then return true end
+        local vertical=not self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.panel_navigation=="vertical"
         local delta
         if vertical then
             if direction=="north" then delta=1 elseif direction=="south" then delta=-1 end
@@ -2115,7 +2179,9 @@ function Reader:onSwipe(_, gesture)
             if direction=="west" then delta=1 elseif direction=="east" then delta=-1 end
         end
         if delta then
-            if self.reader_settings.panel_reverse_navigation then delta=-delta end
+            if self.reader_settings.dynamic_panel_zoom_enabled then
+                if self:_panel_direction()=='manga' then delta=-delta end
+            elseif self.reader_settings.panel_reverse_navigation then delta=-delta end
             return self:_move_panel(delta)
         end
         return true
@@ -2131,19 +2197,28 @@ function Reader:onSwipe(_, gesture)
 end
 
 function Reader:_panel_direction()
-    local order=self.reader_settings.panel_order
+    local order=self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.dynamic_panel_order
+        or self.reader_settings.panel_order
     return (order=="normal" or order=="manga") and order or self.direction
 end
 
 function Reader:set_panel_option(key,value,make_default)
     local previous=copy_table(self.reader_settings)
     local values=copy_table(previous);values[key]=value
+    Dynamic.resolve(values,previous,key)
     local session=self.panel_session
     if session and session.transition then return false end
+    local target_mode=values.dynamic_panel_zoom_enabled and 'dynamic' or values.panel_zoom_enabled and 'intelligent'
+    local mode_changed=self.panel_entry and (key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled')
+        and target_mode~=(self.panel_entry.mode or 'intelligent')
     local snapshot=self.settings.panel_snapshot and self.settings:panel_snapshot()
     local function commit()
         if self.panel_book_key and self.settings.set_panel_reader then
-            return self.settings:set_panel_reader(self.panel_book_key,{[key]=value},make_default)==true
+            local patch={[key]=value}
+            if key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled' then
+                patch.panel_zoom_enabled,patch.dynamic_panel_zoom_enabled=values.panel_zoom_enabled,values.dynamic_panel_zoom_enabled
+            end
+            return self.settings:set_panel_reader(self.panel_book_key,patch,make_default)==true
         end
         return self:_persist_reader(values)
     end
@@ -2156,12 +2231,19 @@ function Reader:set_panel_option(key,value,make_default)
         panel_protect_text="protect_text",panel_transition_mode="transition_mode",
         panel_transition_frames="transition_frames",panel_transition_duration="transition_duration"}
     local camera_key=camera_keys[key]
+    if values.dynamic_panel_zoom_enabled then
+        camera_key=key=='dynamic_panel_margin_percent' and 'margin_percent' or nil
+    end
     local saved
     if session and session:is_active() and camera_key then
         local options={[camera_key]=value}
         if key=="panel_view" then options.zoom,options.pan_x,options.pan_y=1,0,0 end
         saved=session:configure(options,commit,rollback)
     else saved=commit() end
+    if saved and mode_changed then
+        saved=self:exit_panel_mode()
+        if saved then session=nil else rollback() end
+    end
     if not saved then
         local message="分格设置未能应用，已保留原画面与位置。"
         if self.ui and self.ui.show_info then self.ui:show_info(message)
@@ -2181,7 +2263,7 @@ function Reader:set_panel_option(key,value,make_default)
         local current=session:set_direction(self:_panel_direction())
         if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
     end
-    if key=="panel_zoom_enabled" and value==false then self:exit_panel_mode() end
+    if not Dynamic.enabled(values) then self:exit_panel_mode() end
     return true
 end
 
@@ -2406,8 +2488,10 @@ function Reader:reload_settings(values)
     if self.panel_book_key and self.settings.get_panel_overrides then
         for k,v in pairs(self.settings:get_panel_overrides(self.panel_book_key)) do next_values[k]=v end
     end
+    Dynamic.normalize(next_values)
     if not self:_prepare_fit_mode(next_values.fit_mode) then return false end
-    if self.panel_entry and (next_values.panel_zoom_enabled ~= true
+    if self.panel_entry and (not Dynamic.enabled(next_values)
+        or (next_values.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent')~=(self.panel_entry.mode or 'intelligent')
         or next_values.image_engine == "memory") then
         if not self:exit_panel_mode() then return false end
     end
@@ -2613,7 +2697,30 @@ function Reader:toggle_controls(section)
 
     local actions
     local title
-    if section == "panel_view" then
+    if section=='dynamic' then
+        title='动态面板变焦 · 本书 / 长按默认'
+        actions={}
+        for _,field in ipairs(Dynamic.fields) do
+            local f=field
+            local function cycle(make_default)
+                local current=self.reader_settings[f.key]
+                local index=1
+                for i,v in ipairs(f.choices) do if v==current then index=i%#f.choices+1;break end end
+                return persist_and_reopen('dynamic',function()
+                    return self:set_panel_option(f.key,f.choices[index],make_default)
+                end)
+            end
+            local current=self.reader_settings[f.key]
+            if current==nil then current=f.default end
+            local item=action(f.title..'：'..Dynamic.label(f,current),
+                'dynamic '..f.key,function() return cycle(false) end)
+            item.hold_callback=self:_callback('default '..f.key,function() return cycle(true) end,false)
+            actions[#actions+1]=item
+        end
+        actions[#actions+1]=action('退出动态面板 → 整页','exit dynamic panels',function() return self:exit_panel_mode() end)
+        actions[#actions+1]=action('继续阅读','resume dynamic panels',show_current_page)
+        actions[#actions+1]=action('← 返回设置','dynamic settings back',function() return show_section('root') end)
+    elseif section == "panel_view" then
         title="分格视图 · 点按本书 / 长按默认"
         local function choice(text,key,value)
             local function apply(default)
@@ -3007,6 +3114,7 @@ function Reader:toggle_controls(section)
             action("智能分格阅读", "open dynamic panel settings", function()
                 return show_section("panel")
             end),
+            action('动态面板变焦','open native dynamic panels',function() return show_section('dynamic') end),
             action("漫画去灰增强", "open gray enhancement settings", function()
                 return show_section("gray")
             end),

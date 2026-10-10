@@ -6,7 +6,7 @@ FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PERMISSIONS = 0o100644 << 16
 MODULES = """
 archive_pages archive_stream async auto_crop book_index bookshelf bookshelf_store bookshelf_catalog bookshelf_loader bookshelf_toolbar bubble_zoom cache chapter_index client cover
-denoise dialog_keyboard directory_store document_cover document_bridge error_reporter errors format_diagnostics
+denoise dialog_keyboard directory_store document_cover document_bridge dynamic_panel_zoom error_reporter errors format_diagnostics
 gray_enhance graydither_bridge image_formats image_probe keyboard_compat library license license_config license_crypto license_device
 license_rsa license_store license_transport lighting loader local_archive local_client manga_identity manifest
 manifest_posix meguru_association meguru_document meguru_pointer memory_pages memory_transfer

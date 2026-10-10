@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.23
+WebDAV Manga for KOReader - version 0.4.24
 
 Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
@@ -256,3 +256,14 @@ PNG thumbnails and in-flight files share the bookshelf quota. Only current
 visible cards load; originals are never deleted. Discovery prefers the
 natural first direct image, then scans one child level without recursion.
 Native touch layout, PNG encoding and e-ink display acceptance remain pending.
+
+Dynamic panel zoom (0.4.24) is a separate, mutually exclusive mode using the
+existing panel source/session and KOReader's shipped Leptonica. Detection samples
+the borrowed current image to a maximum 960-pixel longest side; only the current
+and next panel are kept. Hold zoom re-renders actual surrounding source pixels
+within the existing pixel budget. No global ReaderUI hooks or new binaries.
+Interaction and native API behavior were reviewed against
+https://github.com/JorgeTheFox/koreader-dynamic-panelzoom
+revision 9ff32bf0ac91e4f7f471c1eed8c2025ef8fb04c4 (MIT).
+No source from that repository is copied into this package. Existing notices
+for previously adapted component/geometry source remain above.

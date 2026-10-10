@@ -7,6 +7,7 @@ local DialogKeyboard = require("webdavmanga.dialog_keyboard")
 local SafeCallback = require("webdavmanga.safe_callback")
 local UiRegistry = require("webdavmanga.ui_registry")
 local ReaderHelp = require("webdavmanga.reader_help")
+local Dynamic = require('webdavmanga.dynamic_panel_zoom')
 
 local UiSettings = {}
 UiSettings.__index = UiSettings
@@ -64,6 +65,7 @@ local function validation_message(code)
         invalid_panel_toggle = "智能分格开关设置无效。",
         invalid_bubble_zoom = "气泡放大设置无效：选择长按或点按，倍率为1.5、2或3倍。",
         invalid_panel_standard_margin = "普通分格边距只能选择 0%、2%、5% 或 10%。",
+        invalid_dynamic_panel_settings = '动态面板设置无效，请使用提供的顺序、边距和缩放选项。',
         invalid_panel_hold_margin = "自由缩放边距只能选择 2%、5%、10%、15% 或 20%。",
         invalid_panel_initial_zoom = "自由缩放倍率只能选择 1.0、1.2、1.5 或 2.0 倍。",
         reader_settings_write_failed = "阅读设置保存失败，已恢复原设置，请重试。",
@@ -234,6 +236,10 @@ local function normalize_reader(values, current)
         animation_enabled = to_boolean(values.animation_enabled),
     }
     for _,f in ipairs(require("webdavmanga.panel_options").fields) do
+        result[f.key]=values[f.key]
+        if result[f.key]==nil then result[f.key]=current[f.key] end
+    end
+    for _,f in ipairs(Dynamic.fields) do
         result[f.key]=values[f.key]
         if result[f.key]==nil then result[f.key]=current[f.key] end
     end
@@ -1045,6 +1051,8 @@ local function default_ui()
             },
             {key="panel_advanced",title="分格高级设置",summary="过渡、手势、对白保护和识别",
                 items=require("webdavmanga.panel_options").items()},
+            {key='dynamic',title='动态面板变焦默认值',summary='原生检测、聚焦与长按周边原图；与智能分格互斥',
+                items=Dynamic.items()},
             {
                 key = "crop", title = "裁切白边", summary = "识别强度、最大比例",
                 items = {
@@ -1113,6 +1121,7 @@ local function default_ui()
         local function persist(field, value)
             local merged = copy_table(model.values)
             merged[field.key] = value
+            Dynamic.resolve(merged,model.values,field.key)
             if model.on_save(merged) then
                 model.values = merged
                 return true
