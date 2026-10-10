@@ -1,0 +1,56 @@
+{
+  "version": "0.4.27",
+  "passed": true,
+  "runtime_sha256": "3428bf3515db1d18e315b76a73fcfdcaa5e6b65871e77472f4ac940f028c5054",
+  "environment": "offline ARM32 LuaJIT/QEMU",
+  "native_bitmap_source_sha256": "62f974ea2aa14fe9e5d44751578132672099b37ed7b1d64c800a467711f7356b",
+  "test_sha256": "ca50b534b37e53d37858350ef21a72090065e66f1a6e3c14115731d9d875ecd0",
+  "source_size": [
+    600,
+    900
+  ],
+  "source_pixels_preserved": true,
+  "cases": [
+    {
+      "bitmap_type": 1,
+      "crop": [
+        53,
+        78,
+        497,
+        744
+      ],
+      "cpu_seconds": 0.856
+    },
+    {
+      "bitmap_type": 2,
+      "crop": [
+        53,
+        78,
+        497,
+        744
+      ],
+      "cpu_seconds": 1.2
+    },
+    {
+      "bitmap_type": 4,
+      "crop": [
+        53,
+        78,
+        497,
+        744
+      ],
+      "cpu_seconds": 1.193
+    },
+    {
+      "bitmap_type": 5,
+      "crop": [
+        53,
+        78,
+        497,
+        744
+      ],
+      "cpu_seconds": 1.204
+    }
+  ],
+  "limits": "This checks actual KOReader bitmap types with synthetic scanner frames. Not live Kindle speed, touch or e-ink."
+}

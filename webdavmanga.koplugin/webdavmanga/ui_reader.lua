@@ -870,10 +870,7 @@ function Reader:_detect_crop(buffer, metadata)
         return nil
     end
     return self:_silent("detect_reader_crop", function()
-        return AutoCrop.detect(buffer, {
-            threshold = self.reader_settings.auto_crop_threshold,
-            max_percent = self.reader_settings.auto_crop_max_percent,
-        })
+        return AutoCrop.detect(buffer, AutoCrop.options(self.reader_settings))
     end)
 end
 
@@ -2613,8 +2610,33 @@ function Reader:set_auto_crop_enabled(enabled)
     local values = copy_table(self.reader_settings)
     values.auto_crop_enabled = enabled
     if not self:_persist_reader(values) then return false end
-    if self.position then self:request_page(self.position.index, "whole") end
-    return true
+    return self:_restart_processed_page()
+end
+
+function Reader:set_crop_enhance_option(key, value)
+    if not AutoCrop.valid_enhance_option(key, value) then return false end
+    local values = copy_table(self.reader_settings)
+    values[key] = value
+    if not self:_persist_reader(values) then return false end
+    return self:_restart_processed_page()
+end
+
+function Reader:show_crop_enhance_input(key)
+    local selected
+    for _, field in ipairs(AutoCrop.enhance_fields) do
+        if field.key == key and field.minimum then selected = field end
+    end
+    if not selected then return false end
+    local titles={auto_crop_border_width="页边细线宽度（分析像素）",
+        auto_crop_min_area="最小内容面积（分析平方像素）",auto_crop_padding_percent="增强额外留白（%）"}
+    local model={title=titles[key],value=tostring(self.reader_settings[key] or selected.default),
+        description=("请输入 %d 到 %d 的整数；分析图最长边320像素"):format(selected.minimum,selected.maximum),
+        on_save=self:_callback("save enhanced crop setting",function(text)
+            return self:set_crop_enhance_option(key,tonumber(text))
+        end,false)}
+    if self.ui and type(self.ui.show_number_input)=="function" then return self.ui:show_number_input(model) end
+    if self.shell and type(self.shell.show_number_input)=="function" then return self.shell:show_number_input(model) end
+    return false
 end
 
 function Reader:set_split_first_segment(segment)
@@ -2706,8 +2728,7 @@ function Reader:show_crop_input(name)
                 values.auto_crop_max_percent = value
             end
             if not self:_persist_reader(values) then return false end
-            if self.position then self:request_page(self.position.index, "whole") end
-            return true
+            return self:_restart_processed_page()
         end, false),
     }
     if self.ui and type(self.ui.show_number_input) == "function" then
@@ -3113,6 +3134,17 @@ function Reader:toggle_controls(section)
                 "toggle auto crop", function()
                     return self:set_auto_crop_enabled(not self.reader_settings.auto_crop_enabled)
                 end),
+            action("页面自动裁剪增强：" .. (self.reader_settings.auto_crop_enhance_enabled and "开" or "关"),
+                "toggle enhanced auto crop", function()
+                    return self:set_crop_enhance_option("auto_crop_enhance_enabled",
+                        not self.reader_settings.auto_crop_enhance_enabled)
+                end),
+            action(("页边细线宽度：%d 分析像素"):format(self.reader_settings.auto_crop_border_width or 2),
+                "adjust crop border width",function() return self:show_crop_enhance_input("auto_crop_border_width") end),
+            action(("最小内容面积：%d 分析平方像素"):format(self.reader_settings.auto_crop_min_area or 4),
+                "adjust crop minimum area",function() return self:show_crop_enhance_input("auto_crop_min_area") end),
+            action(("增强额外留白：%d%%"):format(self.reader_settings.auto_crop_padding_percent or 1),
+                "adjust crop padding",function() return self:show_crop_enhance_input("auto_crop_padding_percent") end),
             action(("识别强度 %d%%"):format(
                 Reader.crop_strength_from_threshold(self.reader_settings.auto_crop_threshold)),
                 "adjust auto crop strength", function()

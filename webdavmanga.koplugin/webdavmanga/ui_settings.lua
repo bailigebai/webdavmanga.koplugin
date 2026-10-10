@@ -90,6 +90,7 @@ local function validation_message(code)
         invalid_progress_bar_thickness = "进度条厚度必须是 1 到 4 倍的整数。",
         invalid_full_refresh_setting = "每页完全刷新设置无效。",
         invalid_auto_crop_enabled = "自动裁白边设置无效。",
+        invalid_auto_crop_enhance_settings = "裁剪增强参数无效：边框 0～10、最小面积 1～100、留白 0～5%。",
         invalid_auto_crop_threshold = "白边识别强度必须是 0 到 100 的整数百分比。",
         invalid_auto_crop_max_percent = "自动裁白边比例必须是 0 到 30 的整数。",
         invalid_split_enabled = "宽幅图切分设置无效。",
@@ -247,6 +248,12 @@ local function normalize_reader(values, current)
     for _,f in ipairs(Quadrant.fields) do
         result[f.key]=values[f.key]
         if result[f.key]==nil then result[f.key]=current[f.key] end
+    end
+    for _,f in ipairs(AutoCrop.enhance_fields) do
+        local value=values[f.key]
+        if value==nil then value=current[f.key] end
+        if type(f.default)=="boolean" then result[f.key]=to_boolean(value)
+        else result[f.key]=tonumber(value) end
     end
     for _,key in ipairs({"panel_view","panel_rotation","panel_navigation","panel_reverse_navigation","panel_order"}) do
         result[key]=values[key];if result[key]==nil then result[key]=current[key] end
@@ -1061,9 +1068,17 @@ local function default_ui()
             {key='grid',title='网格象限缩放默认值',summary='只用双指轻触进入；缩放期间 RTL 与辅助线',
                 items=Quadrant.items()},
             {
-                key = "crop", title = "裁切白边", summary = "识别强度、最大比例",
+                key = "crop", title = "裁切白边", summary = "自动裁边、页面裁剪增强与安全留白",
                 items = {
                     { key = "auto_crop_enabled", title = "自动裁白边", choices = on_off },
+                    { key = "auto_crop_enhance_enabled", title = "页面自动裁剪增强", choices = on_off,
+                        description = "仅自动裁白边开启时生效；连通区域过滤细边框与杂点" },
+                    { key = "auto_crop_border_width", title = "页边细线宽度",
+                        description = "分析图 0～10 像素；0 不过滤边框" },
+                    { key = "auto_crop_min_area", title = "最小内容面积",
+                        description = "分析图 1～100 平方像素；越大过滤越强，建议4" },
+                    { key = "auto_crop_padding_percent", title = "增强额外留白",
+                        description = "每侧 0～5% 原图尺寸；建议1%保护对白" },
                     { key = "auto_crop_strength", title = "白边识别强度",
                         description = "请输入 0 到 100 的整数，越大裁切越强" },
                     { key = "auto_crop_max_percent", title = "最大裁切比例",

@@ -6,6 +6,7 @@ local PanelOptions = require("webdavmanga.panel_options")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
 local Quadrant = require('webdavmanga.quadrant_zoom')
 
+local AutoCrop = require("webdavmanga.auto_crop")
 local Settings = {}
 Settings.__index = Settings
 
@@ -58,6 +59,10 @@ local DEFAULT_READER = {
     auto_crop_enabled = false,
     auto_crop_threshold = 242,
     auto_crop_max_percent = 15,
+    auto_crop_enhance_enabled = false,
+    auto_crop_border_width = 2,
+    auto_crop_min_area = 4,
+    auto_crop_padding_percent = 1,
     split_enabled = false,
     split_min_ratio = 1.20,
     split_max_ratio = 2.20,
@@ -689,6 +694,7 @@ function Settings:get_reader()
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
     Dynamic.normalize(reader)
     Quadrant.normalize(reader)
+    AutoCrop.normalize_enhance(reader)
     reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
     if not one_of(reader.bubble_zoom_trigger,{"hold","tap","both"}) then reader.bubble_zoom_trigger="both" end
     PanelOptions.normalize(reader)
@@ -718,6 +724,7 @@ function Settings:set_reader(values)
     local previous = self:get_reader()
     local reader = with_defaults(previous, values)
     if not Quadrant.validate(reader) then return nil, 'invalid_grid_zoom_settings' end
+    if not AutoCrop.validate_enhance(reader) then return nil, 'invalid_auto_crop_enhance_settings' end
     if not Dynamic.validate(reader) then return nil, 'invalid_dynamic_panel_settings' end
     Dynamic.resolve(reader, previous)
     if type(reader.graydither_enabled) ~= "boolean"

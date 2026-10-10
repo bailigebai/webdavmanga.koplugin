@@ -75,14 +75,15 @@ function PageProcessor.profile(settings, image, content_w, content_h)
         tostring(settings.split_cut_percent or 50),
         ToneAdjust.fingerprint(gray, tone),
         crop_enabled and ("crop/" .. tostring(settings.auto_crop_threshold or 242)
-            .. "/" .. tostring(settings.auto_crop_max_percent or 15)) or "no-crop",
+            .. "/" .. tostring(settings.auto_crop_max_percent or 15)
+            .. (settings.auto_crop_enhance_enabled == true and ("/enhanced-v1/"
+                .. tostring(settings.auto_crop_border_width or 2) .. "/"
+                .. tostring(settings.auto_crop_min_area or 4) .. "/"
+                .. tostring(settings.auto_crop_padding_percent or 1)) or "")) or "no-crop",
     }, ":")
     return {
         id = id, target_width = target_w, target_height = target_h, lut = lut,
-        crop = crop_enabled and {
-            threshold = settings.auto_crop_threshold,
-            max_percent = settings.auto_crop_max_percent,
-        } or nil,
+        crop = crop_enabled and AutoCrop.options(settings) or nil,
     }
 end
 

@@ -1,5 +1,51 @@
 local AutoCrop = {}
 
+AutoCrop.enhance_fields = {
+    {key="auto_crop_enhance_enabled", default=false},
+    {key="auto_crop_border_width", default=2, minimum=0, maximum=10},
+    {key="auto_crop_min_area", default=4, minimum=1, maximum=100},
+    {key="auto_crop_padding_percent", default=1, minimum=0, maximum=5},
+}
+
+function AutoCrop.valid_enhance_option(key, value)
+    for _, field in ipairs(AutoCrop.enhance_fields) do
+        if field.key == key then
+            if type(field.default) == "boolean" then return type(value) == "boolean" end
+            return type(value) == "number" and value == value
+                and value >= field.minimum and value <= field.maximum
+                and value == math.floor(value)
+        end
+    end
+    return false
+end
+
+function AutoCrop.normalize_enhance(settings)
+    for _, field in ipairs(AutoCrop.enhance_fields) do
+        if not AutoCrop.valid_enhance_option(field.key, settings[field.key]) then
+            settings[field.key] = field.default
+        end
+    end
+end
+
+function AutoCrop.validate_enhance(settings)
+    for _, field in ipairs(AutoCrop.enhance_fields) do
+        if not AutoCrop.valid_enhance_option(field.key, settings[field.key]) then return false end
+    end
+    return true
+end
+
+function AutoCrop.options(settings)
+    settings = settings or {}
+    return {
+        threshold = settings.auto_crop_threshold,
+        max_percent = settings.auto_crop_max_percent,
+        enhanced = settings.auto_crop_enhance_enabled == true,
+        border_width = settings.auto_crop_border_width,
+        min_area = settings.auto_crop_min_area,
+        padding_percent = settings.auto_crop_padding_percent,
+    }
+end
+
 local function clamp(value, minimum, maximum)
     value = tonumber(value) or minimum
     if value < minimum then return minimum end
@@ -217,9 +263,120 @@ local function refine_edge(buffer, raster, cell, vertical, reverse)
     return low
 end
 
+-- Connected components are bounded to a 320-pixel analysis image. Keep edge
+-- artwork; only a long line wholly inside the narrow outside band is noise.
+-- This works on the borrowed display buffer without global document hooks.
+local function enhanced_crop(buffer, options)
+    local width, height = dimensions(buffer)
+    if not width then return nil, "invalid_buffer" end
+    local scale = math.min(1, 320 / math.max(width, height))
+    local gw, gh = math.max(3, math.floor(width * scale)), math.max(3, math.floor(height * scale))
+    local gray, histogram = {}, {}
+    for gy = 0, gh - 1 do
+        local y = math.floor(gy * (height - 1) / (gh - 1))
+        for gx = 0, gw - 1 do
+            local x = math.floor(gx * (width - 1) / (gw - 1))
+            local value = pixel_luminance(read_pixel(buffer, x, y))
+            if not value or value ~= value then return nil, "invalid_buffer" end
+            value = math.floor(clamp(value, 0, 255))
+            gray[gy * gw + gx + 1] = value
+            histogram[value] = (histogram[value] or 0) + 1
+        end
+    end
+    -- Whole-page paper estimate tolerates a dark scanner frame at the edges.
+    local seen, background = 0, 255
+    for value = 0, 255 do
+        seen = seen + (histogram[value] or 0)
+        if seen >= gw * gh * .85 then background = value; break end
+    end
+    if background < 160 then return nil, "dark_edge" end
+    local delta = clamp(255 - clamp(options.threshold or 242, 160, 254), 6, 72)
+    local ink = {}
+    for i = 1, #gray do
+        if background - gray[i] >= delta then ink[i] = true end
+    end
+    gray = nil
+    local border = math.floor(clamp(options.border_width or 2, 0, 10))
+    local minimum = math.floor(clamp(options.min_area or 4, 1, 100))
+    local boxes, small, pixels = {}, {}, 0
+    local components = 0
+    for id = 1, gw * gh do
+        if ink[id] then
+            components = components + 1
+            if components > 4096 then return nil, "too_many_components" end
+            local queue, head = {id}, 1
+            ink[id] = nil
+            local left, top, right, bottom, interior = gw, gh, 0, 0, false
+            while head <= #queue do
+                local at = queue[head]
+                head = head + 1
+                local x, y = (at - 1) % gw, math.floor((at - 1) / gw)
+                left, top = math.min(left, x), math.min(top, y)
+                right, bottom = math.max(right, x + 1), math.max(bottom, y + 1)
+                if x >= border and y >= border and x < gw - border and y < gh - border then
+                    interior = true
+                end
+                for dy = -1, 1 do
+                    for dx = -1, 1 do
+                        local nx, ny = x + dx, y + dy
+                        if nx >= 0 and nx < gw and ny >= 0 and ny < gh then
+                            local next_id = ny * gw + nx + 1
+                            if ink[next_id] then
+                                ink[next_id] = nil
+                                queue[#queue + 1] = next_id
+                            end
+                        end
+                    end
+                end
+            end
+            local edge_line = border > 0 and not interior
+                and (right - left >= gw * .5 or bottom - top >= gh * .5)
+            if not edge_line then
+                local box = {left, top, right, bottom}
+                if #queue >= minimum then
+                    boxes[#boxes + 1] = box
+                    pixels = pixels + #queue
+                else small[#small + 1] = box end
+            end
+        end
+    end
+    if #boxes == 0 or pixels < gw * gh * .01 then return nil, "near_blank" end
+    local left, top, right, bottom = gw, gh, 0, 0
+    for _, b in ipairs(boxes) do
+        left, top = math.min(left, b[1]), math.min(top, b[2])
+        right, bottom = math.max(right, b[3]), math.max(bottom, b[4])
+    end
+    -- Small punctuation beside the retained content must not become dust.
+    local reach = math.max(2, math.ceil(math.max(gw, gh) * .01))
+    for _, b in ipairs(small) do
+        if b[3] >= left - reach and b[1] <= right + reach
+            and b[4] >= top - reach and b[2] <= bottom + reach then
+            left, top = math.min(left, b[1]), math.min(top, b[2])
+            right, bottom = math.max(right, b[3]), math.max(bottom, b[4])
+        end
+    end
+    local padding = clamp(options.padding_percent or 1, 0, 5) / 100
+    -- Expand outwards by a sampling cell before applying user padding.
+    left = math.max(0, math.floor((left - 1) * width / gw - width * padding))
+    top = math.max(0, math.floor((top - 1) * height / gh - height * padding))
+    right = math.min(width, math.ceil((right + 1) * width / gw + width * padding))
+    bottom = math.min(height, math.ceil((bottom + 1) * height / gh + height * padding))
+    local maximum = clamp(options.max_percent or 15, 0, 30) / 100
+    if right - left < width * .35 or bottom - top < height * .35
+        or left > width * maximum or width - right > width * maximum
+        or top > height * maximum or height - bottom > height * maximum then
+        return nil, "unsafe_box"
+    end
+    if left < 2 and top < 2 and width - right < 2 and height - bottom < 2 then
+        return nil, "no_margin"
+    end
+    return {x=left, y=top, w=right-left, h=bottom-top, width=right-left, height=bottom-top}, "enhanced_crop"
+end
+
 function AutoCrop.detect(buffer, options)
     options = options or {}
     if not buffer then return nil, "invalid_buffer" end
+    if options.enhanced == true then return enhanced_crop(buffer, options) end
     local raster, reason = build_grid(buffer, options)
     if not raster then return nil, reason end
     local left, top, right, bottom = find_bbox(raster)

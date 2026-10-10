@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.26
+WebDAV Manga for KOReader - version 0.4.27
 
 Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
@@ -277,3 +277,13 @@ are confined to the plugin. No global zoom, rotation or document-direction hooks
 Interaction reference: https://github.com/Shac0x/maximum.koplugin
 revision 0f4d1fc656c4eb1f2fe1262ceceb88e7ffb7d3b8 (GPL-3.0).
 No additional source from that repository is copied for this feature.
+
+Optional page automatic crop enhancement (0.4.27) independently implements
+bounded connected-component analysis inside the existing AutoCrop module.
+Behavior/algorithm reference: tachibana-shin/crop_enhancer.koplugin,
+https://github.com/tachibana-shin/crop_enhancer.koplugin
+revision 2121319c8cce01f07cb9521d0d5b38a75da87735 (MPL-2.0).
+No source code from this reference is copied. Unlike its KOPTContext hooks,
+this feature analyzes the current borrowed bitmap in Lua, filters only narrow
+outer border lines, protects edge artwork, and reuses prepared-page metadata.
+Analysis longest side is at most 320 pixels; uncertain pages keep the full view.
