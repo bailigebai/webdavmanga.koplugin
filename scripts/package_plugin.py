@@ -15,14 +15,14 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 REPO = Path(__file__).resolve().parents[1]
 PLUGIN = REPO / "webdavmanga.koplugin"
-DESTINATION = REPO / "dist" / "webdavmanga.koplugin-v0.4.22-20261010-panel-experience.zip"
+DESTINATION = REPO / "dist" / "webdavmanga.koplugin-v0.4.23-20261010-exit-background-fix.zip"
 sys.path.insert(0, str(REPO / "scripts"))
 import package_contract as contract  # noqa: E402
 import stream_formats_contract as stream_contract  # noqa: E402
 
 
 def source_members() -> dict[str, bytes]:
-    contract.VERSION = "0.4.22"
+    contract.VERSION = "0.4.23"
     contract.REQUIRED = set(contract.REQUIRED) | {"webdavmanga/pdf_image_stream.lua"}
     contract.REQUIRED |= {"lib/kindlehf/" + name for name in
                           ("libarchive.so.13", "README.md", "THIRD_PARTY_NOTICES.txt", "COPYING-KOReader")}
@@ -48,11 +48,11 @@ def source_members() -> dict[str, bytes]:
         ("_meta.lua", rb'\bversion\s*=\s*"([^"]+)"'),
         ("main.lua", rb'\blocal\s+VERSION\s*=\s*"([^"]+)"'),
     ):
-        if re.findall(pattern, members[name]) != [b"0.4.22"]:
+        if re.findall(pattern, members[name]) != [b"0.4.23"]:
             raise ValueError(f"{name} has an unexpected version")
-    if "版本：0.4.22".encode() not in members["README.md"]:
+    if "版本：0.4.23".encode() not in members["README.md"]:
         raise ValueError("README version does not match")
-    if b"version 0.4.22" not in members["NOTICE"]:
+    if b"version 0.4.23" not in members["NOTICE"]:
         raise ValueError("NOTICE version does not match")
     return members
 

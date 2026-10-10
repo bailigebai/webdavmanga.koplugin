@@ -1,17 +1,17 @@
 {
-  "version": "0.4.22",
-  "snapshot": "2026-10-10-panel-experience",
+  "version": "0.4.23",
+  "snapshot": "2026-10-10-exit-background-fix",
   "history": "New repository imported from a source snapshot; old Git history unavailable.",
   "package": {
-    "path": "downloads/webdavmanga.koplugin-v0.4.22-20261010-panel-experience.zip",
-    "sha256": "96890e99413c2f00b6d062794edccb325cc962b18b60a4ffe6eb639528d86883",
+    "path": "downloads/webdavmanga.koplugin-v0.4.23-20261010-exit-background-fix.zip",
+    "sha256": "5ba48119be6950fd439fb103fc98c2097c860092dd0e8251c8f46a075a3af7bb",
     "files": 128
   },
   "plugin_files": [
     {
       "path": "webdavmanga.koplugin/_meta.lua",
       "bytes": 189,
-      "sha256": "066db81f83656e83837b4badb8f5ad39620fbb17dff85efee20522caa4bbd6b2"
+      "sha256": "227f33c9966c1b614f716086d5536129517b41477f386accc2b58a33fbb1d157"
     },
     {
       "path": "webdavmanga.koplugin/lib/kindlehf/COPYING-KOReader",
@@ -35,18 +35,18 @@
     },
     {
       "path": "webdavmanga.koplugin/main.lua",
-      "bytes": 53137,
-      "sha256": "2a5a3a86291e2616181d82a66832a36f17c696930e60ec029c25d725f1c01f8e"
+      "bytes": 53305,
+      "sha256": "69c5e331ecccfe7d7ebaf9258b71e9cba3c6e115d6e75e84f7d3692e983768a1"
     },
     {
       "path": "webdavmanga.koplugin/NOTICE",
       "bytes": 15360,
-      "sha256": "b29723b40befb29a9c47a1572d92902dd829ec64a09e10e0863c7bc0dc646e71"
+      "sha256": "8df1f8ae5f3e1bd531074f1b62c4ea5cddeda4a9861756da26d93bbd01b94196"
     },
     {
       "path": "webdavmanga.koplugin/README.md",
-      "bytes": 90949,
-      "sha256": "eab1b99141839d084c55740c63fc7fc485ad5132461e7845df75e356924b1420"
+      "bytes": 91190,
+      "sha256": "cb479e5f16bc88bf650072c10dcf56672229fdf310588ddaa1891cd12dbc3a24"
     },
     {
       "path": "webdavmanga.koplugin/resources/format_samples/baseline.jpg",

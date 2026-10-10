@@ -1,6 +1,6 @@
-WebDAV Manga for KOReader - version 0.4.22
+WebDAV Manga for KOReader - version 0.4.23
 
-Version 0.4.22 independently extends its existing panel reader with dialogue-first
+Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
 controls, view screenshots and device-or-image rotation. PanelsPlus (4070483),
 Meguru (ebbe7d0) and BubbleZoom (de38fc0) were reviewed as behavior/API references.

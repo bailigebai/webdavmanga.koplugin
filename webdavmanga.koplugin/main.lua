@@ -51,7 +51,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 
 local MB = 1024 * 1024
-local VERSION = "0.4.22"
+local VERSION = "0.4.23"
 local CATALOG_MIGRATION_VERSION = 3
 
 local WebDavManga = WidgetContainer:extend{
@@ -109,7 +109,11 @@ function WebDavManga:_close_ui_session()
         { "reader", function() return self.reader:force_close("plugin_teardown") end },
         { "opds", function() if self.opds_ui then return self.opds_ui:cancel() end end },
         { "library", function() return self.library_ui:cancel(false) end },
-        { "history grid", function() return self.cover_grid:cancel() end },
+        { "history grid", function()
+            -- cancel() reports whether a grid was open, not teardown success.
+            -- Browser may already have cancelled this same grid before us.
+            self.cover_grid:cancel()
+        end },
         { "document", function() return self.document_bridge:cancel_all() end },
         { "offline task", function()
             if self.offline_manager then self.offline_manager:cancel_all() end
