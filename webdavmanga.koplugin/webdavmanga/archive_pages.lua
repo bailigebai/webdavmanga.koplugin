@@ -414,7 +414,8 @@ function ArchivePages:inspect_remote(descriptor, kind, remote_path, options)
         return nil, "zip_eocd_missing"
     end
     descriptor = { size = size, read_at = descriptor.read_at,
-        metadata_work_path = descriptor.metadata_work_path }
+        metadata_work_path = descriptor.metadata_work_path,
+        metadata_max_bytes=descriptor.metadata_max_bytes }
     local page_limit = options and tonumber(options.page_limit)
     if page_limit then page_limit = math.max(1, math.min(MAX_ENTRIES, math.floor(page_limit))) end
     local scan_options
@@ -809,6 +810,7 @@ end
 
 function ArchivePages:_read_metadata(image, descriptor)
     if image.archive_size > MAX_METADATA_SIZE then return nil, "epub_metadata_too_large" end
+    local maximum=tonumber(descriptor.metadata_max_bytes)
     if image.archive_method ~= 0 and image.archive_method ~= 8 then
         if not self:_archive_stream_available() then return nil, "zip_unsupported_method" end
         local work = descriptor.metadata_work_path
@@ -819,7 +821,7 @@ function ArchivePages:_read_metadata(image, descriptor)
         end
         if type(work) ~= "string" or work == "" or work:find("%z") then return nil, "zip_write_failed" end
         local extracted, extract_error = self:_extract_libarchive_entry(
-            as_libarchive_page(image), descriptor.read_at, work, MAX_METADATA_SIZE + 1)
+            as_libarchive_page(image), descriptor.read_at, work,math.min(MAX_METADATA_SIZE+1,maximum or MAX_METADATA_SIZE+1))
         if not extracted then
             pcall(self.remove_file, work)
             return nil, extract_error == "archive_entry_too_large" and "epub_metadata_too_large" or extract_error
@@ -847,6 +849,7 @@ function ArchivePages:_read_metadata(image, descriptor)
         bytes = read_at_exact(descriptor.read_at, data_offset, entry.size)
         if not bytes then return nil, "zip_read_failed" end
     else
+        if maximum and entry.compressed_size+65536>maximum then return nil,"cache_limit" end
         local work = descriptor.metadata_work_path
         if work == nil then
             local named, temporary = pcall(self.temp_name)
@@ -1314,6 +1317,7 @@ function ArchivePages:_extract_tar(image, read_at, target)
 end
 
 function ArchivePages:_extract_libarchive_entry(image, read_at, target, max_bytes)
+    if type(max_bytes)=="number" then max_bytes=math.min(MAX_ENTRY_SIZE,max_bytes) end
     if type(image) ~= "table" or image.archive_kind ~= "libarchive"
         or type(read_at) ~= "function" or type(target) ~= "string" then
         return nil, "archive_entry_invalid"
@@ -1390,8 +1394,8 @@ function ArchivePages:_extract_libarchive_entry(image, read_at, target, max_byte
     return true
 end
 
-function ArchivePages:_extract_libarchive(image, read_at, target)
-    local extracted, extract_error = self:_extract_libarchive_entry(image, read_at, target)
+function ArchivePages:_extract_libarchive(image, read_at, target, maximum)
+    local extracted, extract_error = self:_extract_libarchive_entry(image, read_at, target,maximum)
     if not extracted then return nil, extract_error end
     if image.archive_format == "zip" or image.archive_format == "cbz"
         or image.archive_format == "epub" then
@@ -1412,9 +1416,11 @@ function ArchivePages:_extract_libarchive(image, read_at, target)
     return metadata
 end
 
-function ArchivePages:_extract(image, read_at, target)
+function ArchivePages:_extract(image, read_at, target, maximum)
+    if maximum and tonumber(image and image.archive_size)
+        and image.archive_size>maximum then return nil,"cache_limit" end
     if image and image.archive_kind == "libarchive" then
-        return self:_extract_libarchive(image, read_at, target)
+        return self:_extract_libarchive(image, read_at, target,maximum)
     end
     if image and image.archive_kind == "tar" then
         return self:_extract_tar(image, read_at, target)
@@ -1436,8 +1442,8 @@ function ArchivePages:_extract(image, read_at, target)
     return metadata
 end
 
-function ArchivePages:_protected_extract(image, read_at, target)
-    local ok, metadata, error_code = pcall(self._extract, self, image, read_at, target)
+function ArchivePages:_protected_extract(image, read_at, target,maximum)
+    local ok, metadata, error_code = pcall(self._extract, self, image, read_at, target,maximum)
     pcall(self.remove_file, target .. ".zipwork")
     if not ok then
         pcall(self.remove_file, target)
@@ -1446,14 +1452,14 @@ function ArchivePages:_protected_extract(image, read_at, target)
     return metadata, error_code
 end
 
-function ArchivePages:extract_remote(image, read_at, target)
+function ArchivePages:extract_remote(image, read_at, target,maximum)
     if type(read_at) ~= "function" or type(target) ~= "string" or target == "" then
         return nil, "zip_read_failed"
     end
-    return self:_protected_extract(image, read_at, target)
+    return self:_protected_extract(image, read_at, target,maximum)
 end
 
-function ArchivePages:extract_local(image, target)
+function ArchivePages:extract_local(image, target,maximum)
     local source_path = type(image) == "table" and image.archive_local_path
     if type(source_path) ~= "string" or source_path == "" then return nil, "zip_read_failed" end
     local source = self:_open(source_path, "rb")
@@ -1467,7 +1473,7 @@ function ArchivePages:extract_local(image, target)
         local read_ok, bytes = pcall(source.read, source, count)
         return read_ok and bytes or nil
     end
-    local metadata, error_code = self:_protected_extract(image, read_at, target)
+    local metadata, error_code = self:_protected_extract(image, read_at, target,maximum)
     close_file(source)
     return metadata, error_code
 end

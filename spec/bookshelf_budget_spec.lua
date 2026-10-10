@@ -22,7 +22,8 @@ loader:request_cover(1,{path="/m/huge.jpg",size=3*MB},{on_error=function(e) err=
 expect(requested==0 and err,"known source that cannot fit beside active files is rejected before download")
 loader:request_cover(2,{path="/m/small.jpg",size=MB},{})
 expect(requested==1 and not files["/shelf/old.png"] and files["/shelf/visible.png"],"source reservation evicts idle covers, keeps active files")
-expect(cache.cover_limit_bytes <= 3*MB-Loader.MAX_PNG_BYTES-1000,"download size limit reserves PNG, index and pending bytes")
+expect(cache:write_budget(loader:png_budget(),MB) <= 3*MB-Loader.MAX_PNG_BYTES-1000,
+    "per-job budget reserves PNG, index and pending bytes without changing other jobs' limit")
 -- Local source originals are read directly, regardless of their file size.
 source._uses_direct_local=function() return true end
 local before=requested

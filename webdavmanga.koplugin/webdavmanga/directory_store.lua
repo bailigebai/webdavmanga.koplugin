@@ -114,6 +114,7 @@ function DirectoryStore:new(options)
     object.async = assert(options.async, "async runner is required")
     object.identity = tostring(options.identity or "")
     object.md5 = options.md5
+    object.temporary_limit_provider = options.temporary_limit_provider
     object.manifest_module = options.manifest or Manifest
     object.scheduler = options.scheduler or default_scheduler()
     object.error_reporter = options.error_reporter
@@ -193,6 +194,7 @@ function DirectoryStore:_release_part(request)
     if request.part_released then return end
     request.part_released = true
     self.cache:discard_part(request.key, "manifest", request.token)
+    if self.cache.wake_space_waiters then self.cache:wake_space_waiters() end
 end
 
 function DirectoryStore:_is_current(request)
@@ -202,6 +204,7 @@ end
 function DirectoryStore:_cancel_request(request)
     if request.canceled then return end
     request.canceled = true
+    if self.cache.cancel_space_wait then self.cache:cancel_space_wait(request) end
     if self.pending[request.remote_path] == request then
         self.pending[request.remote_path] = nil
     end
@@ -211,6 +214,8 @@ function DirectoryStore:_cancel_request(request)
     end
     if request.async_handle and request.async_handle.cancel then
         request.async_handle:cancel()
+    elseif request.part_path then
+        self:_release_part(request)
     end
 end
 
@@ -291,11 +296,21 @@ function DirectoryStore:load(remote_path, callbacks)
         end
     end
 
-    local manifest_options
-    if self.cache.unified_quota then
-        manifest_options={max_temp_bytes=self.cache:write_budget(65536,0,request.part_path)}
-    end
-    request.async_handle = self.async.run(function()
+    local function start()
+        if not self:_is_current(request) then return end
+        local manifest_options
+        if self.cache.unified_quota then
+            local maximum=self.temporary_limit_provider and self.temporary_limit_provider()
+            manifest_options={max_temp_bytes=self.cache:write_budget(65536,0,request.part_path,maximum)}
+            -- Partial positive space is also transient. Old canceled workers
+            -- must be reaped before a fresh full allowance enters the child.
+            if manifest_options.max_temp_bytes<(maximum or 1) and self.cache.has_pending_writes
+                and self.cache:has_pending_writes(request.part_path) then
+                self.cache:wait_for_space(request,start)
+                return
+            end
+        end
+        request.async_handle = self.async.run(function()
         if not request_client then
             return { error = Errors.transport("client initialization failed") }
         end
@@ -347,7 +362,10 @@ function DirectoryStore:load(remote_path, callbacks)
         if callbacks.on_ready then
             self:_report_callback(function() return callbacks.on_ready(directory) end)
         end
+        if self.cache.wake_space_waiters then self.cache:wake_space_waiters() end
     end, async_options)
+    end
+    start()
 
     return public_handle
 end

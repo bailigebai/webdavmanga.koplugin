@@ -11,6 +11,7 @@ local Grid=require("webdavmanga.ui_cover_grid")
 local SettingsUi=require("webdavmanga.ui_bookshelf_cache")
 local Path=require("webdavmanga.path")
 local MB=1024*1024
+local COVER_CONCURRENCY=6
 local Shelf={};Shelf.__index=Shelf
 
 function Shelf:new(options)
@@ -27,27 +28,47 @@ function Shelf:new(options)
     if o.cache.cleanup_parts then o.cache:cleanup_parts(0) end
     local id=o.identity_provider(o.settings:get_connection())
     local function client() return options.client_factory(o.settings:get_connection()) end
+    local function current_concurrency()
+        return math.max(1,math.min(COVER_CONCURRENCY,
+            math.floor((o.cache.limit_bytes or policy.total_mb*MB)/MB)))
+    end
+    local concurrency=current_concurrency()
+    local function temporary_share()
+        -- Keep room for every lane's PNG and atomic index write. Tiny quotas
+        -- still allow a small local cover; the cache enforces actual free space.
+        local png_budget=o.loader and o.loader.png_budget and o.loader:png_budget() or ThumbnailLoader.MAX_PNG_BYTES
+        return math.max(1,math.floor((o.cache.limit_bytes or policy.total_mb*MB)/current_concurrency())
+            -png_budget-65536)
+    end
     o.directory_store=options.directory_store or DirectoryStore:new{cache=o.cache,
         identity=id,client_factory=client,async=options.async,scheduler=options.scheduler,
-        md5=options.md5,error_reporter=options.error_reporter}
+        md5=options.md5,error_reporter=options.error_reporter,temporary_limit_provider=temporary_share}
     o.catalog=options.catalog or Catalog:new{cache=o.cache,identity_provider=o.identity_provider,json=options.json}
     o.cover=options.cover or Cover:new{library=o.catalog,directory_store=o.directory_store,
-        document_cover=options.document_cover or DocumentCover:new{client_factory=options.client_factory,async=options.async},
+        document_cover=options.document_cover or DocumentCover:new{client_factory=options.client_factory,async=options.async,probe_only=true,
+            cache=o.cache,metadata_limit_provider=temporary_share},
         search_all_children=true,scheduler=options.scheduler,error_reporter=options.error_reporter}
     o.source_loader=options.source_loader or SourceLoader:new{cache=o.cache,
         validate_local_documents=true,
         client_factory=client,identity=id.."\0bookshelf-source-v1",async=options.async,
-        prefetch_concurrency=1,error_reporter=options.error_reporter,
+        prefetch_concurrency=1,cover_concurrency=concurrency,error_reporter=options.error_reporter,
         download_limit_provider=function(image,part)
-            return o.cache:write_budget(ThumbnailLoader.MAX_PNG_BYTES,tonumber(image.size) or 0,part)
+            local required=ThumbnailLoader.source_size(image)
+            local maximum=required>0 and math.ceil(required) or temporary_share()
+            local png_budget=o.loader and o.loader.png_budget and o.loader:png_budget() or ThumbnailLoader.MAX_PNG_BYTES
+            local available=o.cache:write_budget(png_budget,required,part,maximum)
+            if available<required or (required==0 and available<maximum
+                and o.cache:has_pending_writes(part)) then return 0 end
+            return available
         end,
         source_kind_provider=function() return o.settings:get_connection().kind or "webdav" end}
     o.loader=options.thumbnail_loader or ThumbnailLoader:new{cache=o.cache,
         loader=o.source_loader,identity=id.."\0bookshelf-thumbnail-v1",renderer=options.render_image}
+    if o.loader.set_target_size then o.loader:set_target_size(384,512) end
     o.grid=options.grid or Grid:new{cover_service=o.cover,cache=o.cache,loader=o.loader,
         settings=o.settings,connection_provider=function() return o.settings:get_connection() end,
         scheduler=options.scheduler,render_image=options.render_image,ui=options.grid_ui,defer_ui=true,
-        fit_whole_image=true,
+        fit_whole_image=true,cover_concurrency=concurrency,
         error_reporter=options.error_reporter}
     o.settings_ui=options.settings_ui or SettingsUi:new{cache=o.cache,settings=o.settings,
         ui=options.settings_ui_adapter,error_reporter=options.error_reporter,
@@ -72,6 +93,10 @@ function Shelf:_schedule()
     if not ok or result==false then self.cleanup_task=nil end
 end
 function Shelf:reschedule()
+    local concurrency=math.max(1,math.min(COVER_CONCURRENCY,
+        math.floor(self.cache.limit_bytes/MB)))
+    self.source_loader.cover_concurrency=concurrency
+    if self.grid.set_cover_concurrency then self.grid:set_cover_concurrency(concurrency) end
     if self.cleanup_task and self.scheduler and self.scheduler.unschedule then
         self.scheduler:unschedule(self.cleanup_task)
     end

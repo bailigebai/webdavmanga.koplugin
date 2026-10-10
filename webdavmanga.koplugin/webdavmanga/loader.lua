@@ -47,6 +47,8 @@ function Loader:new(options)
     -- the user-facing default of two workers explicitly.
     object.prefetch_concurrency = math.max(1, math.min(3,
         math.floor(tonumber(options.prefetch_concurrency) or 1)))
+    object.cover_concurrency = math.max(1, math.min(6,
+        math.floor(tonumber(options.cover_concurrency) or 1)))
     object.current_queue = {}
     object.cover_queue = {}
     object.prefetch_queue = {}
@@ -106,6 +108,12 @@ end
 
 function Loader:_exceeds_limit(image, kind)
     local known_size = tonumber(image and image.size)
+    if kind=="cover" and image then
+        if image.mupdf_page then known_size=nil
+        elseif image.archive_entry_name then known_size=tonumber(image.archive_size)
+        elseif image.mobi_record then known_size=tonumber(image.mobi_size)
+        elseif image.pdf_image then known_size=tonumber(image.pdf_image_length) end
+    end
     local limit
     if kind == "cover" then
         limit = tonumber(self.cache.cover_limit_bytes)
@@ -204,6 +212,7 @@ function Loader:_cancel_active_job(job)
     job.transfer = nil
     job.handle = nil
     if handle and handle.cancel then pcall(handle.cancel, handle) end
+    if self.cache.cancel_space_wait then self.cache:cancel_space_wait(job) end
     return true
 end
 
@@ -325,6 +334,7 @@ function Loader:_remove_waiters(predicate, except_key)
             end
             local new_kind = self:_recompute_kind(job)
             if not new_kind then
+                if self.cache.cancel_space_wait then self.cache:cancel_space_wait(job) end
                 if job == self.active or self.prefetch_active[job.key] == job then
                     self:_cancel_active_job(job)
                 else
@@ -456,6 +466,7 @@ function Loader:_finish_job(job, transfer, deliver, published, defer_part_releas
     job.transfer = nil
     job.handle = nil
     if deliver then self.error_reporter:guard("download_page", deliver, nil, nil, { silent = true }) end
+    if self.cache.wake_space_waiters then self.cache:wake_space_waiters() end
     self:_pump()
     return true
 end
@@ -503,10 +514,23 @@ function Loader:_deliver_error(job, err)
 end
 
 function Loader:_pump()
+    if self.cover_concurrency>1 then
+        if self.pumping_covers then return end
+        self.pumping_covers=true
+        if not self.active and #self.current_queue>0 then
+            self:_start_job(table.remove(self.current_queue,1),"primary")
+        end
+        while self.prefetch_active_count<self.cover_concurrency and #self.cover_queue>0 do
+            if self:_start_job(table.remove(self.cover_queue,1),"prefetch")==false then
+                self.pumping_covers=false;return
+            end
+        end
+        self.pumping_covers=false
+    end
     if self.prefetch_concurrency <= 1 then
         if self.active then return end
         local serial
-        if #self.current_queue > 0 or #self.cover_queue > 0 then
+        if #self.current_queue > 0 or (#self.cover_queue > 0 and self.cover_concurrency<=1) then
             serial = self:_next_primary_job()
         elseif self.prefetch_active_count == 0 then
             serial = self:_next_job()
@@ -570,11 +594,25 @@ function Loader:_start_job(job, slot)
         local limit=self.download_limit_provider(job.image,part_path)
         download_options={max_bytes=math.max(0,tonumber(limit) or 0)}
     end
+    if download_options and download_options.max_bytes<1
+        and self.cache.has_pending_writes and self.cache:has_pending_writes(part_path) then
+        self:_release_part(job,transfer)
+        self:_clear_active_job(job)
+        job.transfer=nil;job.handle=nil;job.attempts=job.attempts-1
+        self:_insert_job(job,true)
+        self.cache:wait_for_space(job,function()
+            if self.jobs_by_key[job.key]==job then self:_pump() end
+        end)
+        return false
+    end
     local handle = self.async.run(function()
         if download_options and download_options.max_bytes<1 then return {error=Errors.storage("cache_limit")} end
+        local maximum=download_options and download_options.max_bytes
+        local known=tonumber(job.image.archive_size or job.image.mobi_size or job.image.pdf_image_length)
+        if maximum and known and known>maximum then return {error=Errors.storage("cache_limit")} end
         if archive_entry then
             if job.image.archive_local_path then
-                local metadata, extract_error = self.archive_pages:extract_local(job.image, part_path)
+                local metadata, extract_error = self.archive_pages:extract_local(job.image, part_path,maximum)
                 if not metadata then return { error = Errors.image_decode(extract_error, "local") } end
                 return { metadata = metadata }
             end
@@ -597,7 +635,7 @@ function Loader:_start_job(job, slot)
                 return { error = Errors.image_decode("invalid_remote_zip_size", "remote") }
             end
             local metadata, extract_error = self.archive_pages:extract_remote(job.image,
-                function(offset, count) return stream:read_at(offset, count) end, part_path)
+                function(offset, count) return stream:read_at(offset, count) end, part_path,maximum)
             if not metadata then
                 return { error = Errors.image_decode(extract_error, "remote") }
             end
@@ -677,7 +715,7 @@ function Loader:_start_job(job, slot)
                 end
                 local metadata, extract_error = self.pdf_image_stream:extract_remote(
                     job.image, function(first, count) return stream:read_at(first, count) end,
-                    part_path)
+                    part_path,nil,maximum)
                 if not metadata then
                     if extract_error == "pdf_image_write_failed" then
                         return { error = Errors.storage(extract_error) }
@@ -730,7 +768,7 @@ function Loader:_start_job(job, slot)
                 end
                 metadata, render_error = self.mupdf_pages:render_remote(job.image,
                     function(offset, count) return stream:read_at(offset, count) end,
-                    part_path)
+                    part_path,maximum)
             else
                 local local_image = job.image
                 -- Shelf local PDF descriptors originate from a validated
@@ -748,7 +786,7 @@ function Loader:_start_job(job, slot)
                     for key, value in pairs(job.image) do local_image[key] = value end
                     local_image.local_path, local_image.source_path = verified, verified
                 end
-                metadata, render_error = self.mupdf_pages:render_local(local_image, part_path)
+                metadata, render_error = self.mupdf_pages:render_local(local_image, part_path,maximum)
             end
             if not metadata then
                 return { error = Errors.image_decode(render_error or "mupdf_render_failed",
@@ -846,9 +884,11 @@ function Loader:_start_job(job, slot)
         timeout = 120,
         on_cancelled = function()
             self:_release_part(job, transfer)
+            if self.cache.wake_space_waiters then self.cache:wake_space_waiters() end
         end,
         on_reaped = function()
             self:_release_part(job, transfer)
+            if self.cache.wake_space_waiters then self.cache:wake_space_waiters() end
         end,
         on_callback_error = function(callback_error)
             self.error_reporter:guard("download_page", function()
@@ -858,6 +898,7 @@ function Loader:_start_job(job, slot)
     })
     transfer.handle = handle
     if self:_is_current_transfer(job, transfer) then job.handle = handle end
+    return true
 end
 
 function Loader:cancel_cover_generation(generation)
@@ -877,6 +918,9 @@ function Loader:cancel_generation(generation)
 end
 
 function Loader:cancel_all()
+    if self.cache.cancel_space_wait then
+        for _,job in pairs(self.jobs_by_key) do self.cache:cancel_space_wait(job) end
+    end
     self.current_queue = {}
     self.cover_queue = {}
     self.prefetch_queue = {}

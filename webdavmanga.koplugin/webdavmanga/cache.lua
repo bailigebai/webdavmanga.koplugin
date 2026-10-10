@@ -281,6 +281,10 @@ function Cache:_part_size(part)
     -- Consume only the size; filesystem errors may also return an error string.
     local part_size = self.fs.size(part)
     local size=tonumber(part_size) or 0
+    if self.unified_quota then
+        local zipwork_size = self.fs.size(part..".zipwork")
+        size=size+(tonumber(zipwork_size) or 0)
+    end
     if self.unified_quota and self.fs.list then
         each_file(self.fs,self.root,function(entry)
             if entry.path and entry.path:sub(1,#part+5)==part..".wdm-" then
@@ -296,7 +300,7 @@ function Cache:pending_size()
     for path in pairs(self.owned_parts) do size=size+self:_part_size(path) end
     return size
 end
-function Cache:write_budget(reserve,required,part)
+function Cache:write_budget(reserve,required,part,maximum)
     reserve=math.max(0,tonumber(reserve) or 0)
     local disk=self.store.on_disk_size and self.store:on_disk_size() or 0
     local held=0
@@ -305,11 +309,33 @@ function Cache:write_budget(reserve,required,part)
     end
     self:evict((tonumber(required) or 0)+reserve+disk+held,self.protected_keys)
     local available=math.max(0,self.limit_bytes-self:total_size()-disk-reserve-held)
+    -- Concurrent shelf tasks reserve a bounded share rather than one task
+    -- claiming every free byte. Other cache users retain the existing budget.
+    if is_positive_integer(maximum) then available=math.min(available,maximum) end
     if part and available>0 then
         self.write_reservations=self.write_reservations or {}
         self.write_reservations[part]=available+reserve
     end
     return available
+end
+-- Shelf producers wait for real release/reap, rather than snapshotting a
+-- zero allowance into a child process. Waiters are one-shot and cancelable.
+function Cache:has_pending_writes(except)
+    for path,amount in pairs(self.write_reservations or {}) do
+        if path~=except and amount>0 then return true end
+    end
+    return false
+end
+function Cache:wait_for_space(owner,callback)
+    self.space_waiters=self.space_waiters or {}
+    self.space_waiters[owner]=callback
+end
+function Cache:cancel_space_wait(owner)
+    if self.space_waiters then self.space_waiters[owner]=nil end
+end
+function Cache:wake_space_waiters()
+    local waiting=self.space_waiters or {};self.space_waiters={}
+    for _,callback in pairs(waiting) do pcall(callback) end
 end
 function Cache:total_size(entries)
     local total = 0
@@ -883,6 +909,7 @@ function Cache:discard_part(key, extension, part_token)
     local part_path = token and final_path .. "." .. token .. ".part" or final_path .. ".part"
     self.owned_parts[part_path] = nil
     if self.write_reservations then self.write_reservations[part_path]=nil end
+    if self.unified_quota then self.fs.remove(part_path..".zipwork") end
     if self.unified_quota and self.fs.list then
         each_file(self.fs,self.root,function(entry)
             if entry.path and entry.path:sub(1,#part_path+5)==part_path..".wdm-" then

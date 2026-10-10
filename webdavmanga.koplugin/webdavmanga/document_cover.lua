@@ -13,6 +13,8 @@ function Service:new(options)
         mobi_pages=options.mobi_pages or require("webdavmanga.mobi_pages"):new(),
         pdf_pages=options.pdf_pages or require("webdavmanga.pdf_image_stream"):new(),
         mupdf_pages=options.mupdf_pages or require("webdavmanga.mupdf_pages"):new(),
+        probe_only=options.probe_only==true,
+        cache=options.cache,metadata_limit_provider=options.metadata_limit_provider,sequence=0,
         temp_name=options.temp_name or os.tmpname,remove_file=options.remove_file or os.remove},self)
 end
 function Service:supports(document)
@@ -32,8 +34,17 @@ function Service:resolve(connection,document,callbacks)
         if type(v)=="string" or type(v)=="number" or type(v)=="boolean" then snapshot[k]=v end
     end
     local kind=Formats.extension(document.name or path)
-    local native_target,cleaned
-    if kind=="pdf" then
+    local native_target,cleaned,metadata_request,metadata_budget
+    if kind=="epub" and self.cache then
+        self.sequence=self.sequence+1
+        local key=self.cache:key_for("bookshelf-metadata",path)
+        local token="metadata"..self.sequence
+        local _,part=self.cache:paths_for(key,"manifest",token)
+        metadata_request={key=key,token=token,part=part}
+    end
+    if kind=="pdf" and self.probe_only then
+        native_target={page=1,probe_only=true}
+    elseif kind=="pdf" then
         local ok,target=pcall(self.temp_name)
         if not ok or type(target)~="string" or target=="" then
             fail("document_cover_target_unavailable");return {cancel=function() end}
@@ -41,13 +52,29 @@ function Service:resolve(connection,document,callbacks)
         native_target={page=1,path=target}
     end
     local function cleanup()
-        if native_target and not cleaned then
+        if native_target and native_target.path and not cleaned then
             cleaned=true;pcall(self.remove_file,native_target.path)
+        end
+        if metadata_request and not metadata_request.cleaned then
+            metadata_request.cleaned=true
+            self.cache:discard_part(metadata_request.key,"manifest",metadata_request.token)
+            self.cache:wake_space_waiters()
         end
     end
     local size,etag,modified=tonumber(document.size),document.etag,document.modified
     local canceled=false
-    local handle=self.async.run(function()
+    local handle
+    local function start()
+        if canceled then return end
+        if metadata_request then
+            local maximum=self.metadata_limit_provider and self.metadata_limit_provider()
+            metadata_budget=self.cache:write_budget(65536,0,metadata_request.part,maximum)
+            if metadata_budget<(maximum or 1) and self.cache:has_pending_writes(metadata_request.part) then
+                self.cache:wait_for_space(metadata_request,start);return
+            end
+            if metadata_budget<1 then cleanup();fail("cache_limit");return end
+        end
+        handle=self.async.run(function()
         local client=self.client_factory(snapshot)
         local local_path,local_metadata
         if client.direct and client.resolve_document then
@@ -65,6 +92,10 @@ function Service:resolve(connection,document,callbacks)
             if not stream then return {error="invalid_document_cover_size"} end
             local descriptor={size=source_size,format=kind,name=document.name,
                 read_at=function(offset,count) return stream:read_at(offset,count) end}
+            if metadata_request then
+                descriptor.metadata_work_path=metadata_request.part..".wdm-epub"
+                descriptor.metadata_max_bytes=metadata_budget
+            end
             if archives[kind] then
                 local sequential=kind=="rar" or kind=="cbr" or kind=="7z" or kind=="cb7"
                 book,err=self.archive_pages:inspect_remote(descriptor,kind,path,
@@ -97,9 +128,13 @@ function Service:resolve(connection,document,callbacks)
         end
         if callbacks.on_ready then callbacks.on_ready(result.image) end
     end,{max_payload_bytes=65536,on_cancelled=cleanup,on_reaped=cleanup})
+    end
+    start()
     return {cancel=function()
         canceled=true
+        if metadata_request then self.cache:cancel_space_wait(metadata_request) end
         if handle and handle.cancel then handle:cancel() end
+        if not handle then cleanup() end
     end}
 end
 return Service

@@ -1158,7 +1158,7 @@ function PdfImageStream:_image(source, offsets, number, remote_path, page_number
     }
 end
 
-function PdfImageStream:extract_remote(image, read_at, target, session)
+function PdfImageStream:extract_remote(image, read_at, target, session, maximum)
     if type(image) ~= "table" or image.pdf_image ~= true
         or type(read_at) ~= "function" or type(target) ~= "string" then
         return nil, "pdf_image_invalid" end
@@ -1183,6 +1183,7 @@ function PdfImageStream:extract_remote(image, read_at, target, session)
     if not bytes then return nil, "pdf_image_read_failed" end
     if resolved_image.pdf_image_flate then
         local expected = resolved_image.width * resolved_image.height * resolved_image.pdf_image_components
+        if maximum and expected+65536>maximum then return nil,"cache_limit" end
         local pixels, err = decode_image_pixels(self.decompress, bytes, expected)
         if not pixels then return nil, err end
         local encoded, wrote = pcall(self.encode_png, target, pixels,
@@ -1202,6 +1203,7 @@ function PdfImageStream:extract_remote(image, read_at, target, session)
                 segment_length % 256) .. "ICC_PROFILE\0\1\1" .. profile
             bytes = bytes:sub(1, 2) .. segment .. bytes:sub(3)
         end
+        if maximum and #bytes>maximum then return nil,"cache_limit" end
         local file = io.open(target, "wb")
         if not file then return nil, "pdf_image_write_failed" end
         local wrote, closed = file:write(bytes), file:close()

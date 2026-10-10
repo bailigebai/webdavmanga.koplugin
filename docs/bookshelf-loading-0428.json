@@ -1,0 +1,53 @@
+{
+  "arch": "arm",
+  "cases": [
+    {
+      "file": "k1.png",
+      "width": 112,
+      "height": 160,
+      "target": [
+        120,
+        160
+      ],
+      "warm_source_requests": 0,
+      "bytes": 12554,
+      "fully_decoded": true
+    },
+    {
+      "file": "k3.png",
+      "width": 225,
+      "height": 320,
+      "target": [
+        240,
+        320
+      ],
+      "warm_source_requests": 0,
+      "bytes": 42109,
+      "fully_decoded": true
+    },
+    {
+      "file": "k4.png",
+      "width": 361,
+      "height": 512,
+      "target": [
+        384,
+        512
+      ],
+      "warm_source_requests": 0,
+      "bytes": 93042,
+      "fully_decoded": true
+    }
+  ],
+  "source_requests": 3,
+  "source_bytes": 382353,
+  "original_unchanged": true,
+  "version": "0.4.28",
+  "passed": true,
+  "runtime_sha256": "3d1d52d0ef354b5fcb77c47866d5e6bae38c2c6dbc620c1a6e383f57f7a98eb8",
+  "source_sha256": "bc194507df766039eee194fe61236a8b07945e0b76f08bcc2799ab39b7b933f3",
+  "sample_zip_sha256": "04553c7d5362d0def54814a75b1ff58496473fa29b397d64b15af3f47c6648f0",
+  "reference_runtime_zip_sha256": "9eeeab4e534959b95864f3c1b0f84285dc7bd3767e682a1d1036d9501b3b89cf",
+  "test_sha256": "503b11e1f7620ea7d8d51a152f5636e8624a016d264b594405d8ed16ff0ea919",
+  "runner_sha256": "513c1d97421374610b18d95fe436996ff8bf46f2a3b815cd0b3af5687d82aca3",
+  "limits": "Offline ARM32 LuaJIT/QEMU, actual KOReader JPEG/scale/PNG. Cache/client are IO boundaries; this is not measured Kindle loading speed."
+}

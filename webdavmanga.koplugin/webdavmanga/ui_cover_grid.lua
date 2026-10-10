@@ -672,7 +672,14 @@ function CoverGrid:new(deps)
     object.sequence = 0
     object.view_sequence = 0
     object.active_generation = nil
-    object.active_resolution = nil
+    object.resolution_slots={{resolver=object.cover_service}}
+    local concurrency=math.max(1,math.min(6,math.floor(tonumber(deps.cover_concurrency) or 1)))
+    object.cover_concurrency=concurrency
+    if object.cover_service.fork then
+        for _=2,concurrency do
+            object.resolution_slots[#object.resolution_slots+1]={resolver=object.cover_service:fork()}
+        end
+    end
     object.queue = {}
     object.items_by_id = {}
     object.is_open = false
@@ -694,14 +701,15 @@ end
 
 function CoverGrid:_cancel_active_work()
     local generation = self.active_generation
-    local resolution = self.active_resolution
     self.active_generation = nil
-    self.active_resolution = nil
     self.queue = {}
+    for _,slot in ipairs(self.resolution_slots) do
+        local task=slot.task;slot.task=nil
+        if task and task.handle and task.handle.cancel then pcall(task.handle.cancel,task.handle) end
+    end
     if generation and self.loader.cancel_cover_generation then
         pcall(self.loader.cancel_cover_generation, self.loader, generation)
     end
-    if resolution and resolution.cancel then pcall(resolution.cancel, resolution) end
 end
 
 function CoverGrid:_is_current(generation)
@@ -826,14 +834,16 @@ function CoverGrid:_request_download(generation, item, image, on_done)
     end
     local local_path = self:_cache_path(image)
     if local_path then
-        self:_render_cover(generation, item, local_path)
+        pcall(self._render_cover,self,generation,item,local_path)
         done()
         return
     end
     local ok, handle = pcall(self.loader.request_cover, self.loader,
         generation, image, {
             on_ready = function(path)
-                self:_render_cover(generation, item, path)
+                -- A broken card must not occupy its lane forever. The outer
+                -- async callback guard reports errors but cannot advance it.
+                pcall(self._render_cover,self,generation,item,path)
                 done()
             end,
             on_error = done,
@@ -843,36 +853,38 @@ function CoverGrid:_request_download(generation, item, image, on_done)
     return handle
 end
 
-function CoverGrid:_resolve_next(generation)
+function CoverGrid:_resolve_next(generation,slot)
     if not self:_is_current(generation) then return end
     local item = table.remove(self.queue, 1)
-    if not item then
-        self.active_resolution = nil
-        return
+    if not item then return end
+    local task={};slot.task=task
+    local function done()
+        if slot.task~=task or not self:_is_current(generation) then return end
+        slot.task=nil
+        self:_pump_resolutions(generation)
     end
-    self.active_resolution = nil
     if item.local_document_path then
         self:_render_document_cover(generation, item, item.local_document_path)
-        return self:_resolve_next(generation)
+        return done()
     end
     if item.local_cover_path then
         local rendered = self:_render_cover(generation, item, item.local_cover_path)
         if rendered or item.local_deleted then
-            return self:_resolve_next(generation)
+            return done()
         end
     end
-    if item.offline_shelf then return self:_resolve_next(generation) end
+    if item.offline_shelf then return done() end
     local settled = false
     local function advance(image)
         if settled then return end
         settled = true
         if not self:_is_current(generation) then return end
-        self.active_resolution = nil
+        task.handle=nil
         if image then
             return self:_request_download(generation, item, image,
-                function() self:_resolve_next(generation) end)
+                done)
         end
-        self:_resolve_next(generation)
+        done()
     end
     local connection
     if self.error_reporter then
@@ -884,7 +896,7 @@ function CoverGrid:_resolve_next(generation)
     end
     if not connection then return advance(nil) end
     local handle
-    local ok, result = pcall(self.cover_service.resolve, self.cover_service, connection, {
+    local ok, result = pcall(slot.resolver.resolve, slot.resolver, connection, {
         manga = item.manga,
         cover_hint = item.cover_hint,
         layout = item.layout,
@@ -895,24 +907,74 @@ function CoverGrid:_resolve_next(generation)
     })
     if ok then handle = result end
     if not ok then return advance(nil) end
-    if handle and not settled and self:_is_current(generation) then self.active_resolution = handle end
+    if handle and not settled and slot.task==task and self:_is_current(generation) then task.handle = handle end
+end
+
+function CoverGrid:_pump_resolutions(generation)
+    if self.pumping_resolutions then return end
+    self.pumping_resolutions=true
+    local progress=true
+    while progress and self:_is_current(generation) and #self.queue>0 do
+        progress=false
+        for index,slot in ipairs(self.resolution_slots) do
+            if index<=self.cover_concurrency and self:_is_current(generation) and not slot.task and #self.queue>0 then
+                progress=true
+                local ok=pcall(self._resolve_next,self,generation,slot)
+                if not ok then
+                    local task=slot.task;slot.task=nil
+                    if task and task.handle and task.handle.cancel then pcall(task.handle.cancel,task.handle) end
+                end
+            end
+        end
+    end
+    self.pumping_resolutions=false
+    if self.is_open and self.active_generation and self.active_generation~=generation then
+        self:_pump_resolutions(self.active_generation)
+    end
+end
+
+function CoverGrid:set_cover_concurrency(value)
+    local count=math.max(1,math.min(6,math.floor(tonumber(value) or 1)))
+    if not self.cover_service.fork then count=1 end
+    if count==self.cover_concurrency then return false end
+    while #self.resolution_slots<count do
+        self.resolution_slots[#self.resolution_slots+1]={resolver=self.cover_service:fork()}
+    end
+    self.cover_concurrency=count
+    if self.is_open and self.visible_ids then self:_visible(self.view_sequence,self.visible_ids) end
+    return true
 end
 
 function CoverGrid:_visible(view, ids)
     if not self.is_open or view ~= self.view_sequence then return false end
     if self.ui.free_visible then pcall(self.ui.free_visible, self.ui) end
     self:_cancel_active_work()
+    if self.loader.set_target_size then self.loader:set_target_size(self:_target_size()) end
     local generation = self:_new_generation()
     self.active_generation = generation
+    self.visible_ids={}
     local seen = {}
+    local connection
+    if #self.resolution_slots>1 and self.cover_service.get then
+        local ok,value=pcall(self.connection_provider)
+        if ok then connection=value end
+    end
     for _, id in ipairs(ids or {}) do
         local item = self.items_by_id[id]
         if item and not seen[id] then
             seen[id] = true
-            self.queue[#self.queue + 1] = item
+            self.visible_ids[#self.visible_ids+1]=id
+            local image,local_path
+            if connection then
+                local ok,value=pcall(self.cover_service.get,self.cover_service,connection,item.manga and item.manga.path)
+                if ok then image=value;local_path=self:_cache_path(image) end
+            end
+            if local_path then
+                self:_request_download(generation,item,image,function() end)
+            else self.queue[#self.queue + 1] = item end
         end
     end
-    self:_resolve_next(generation)
+    self:_pump_resolutions(generation)
     return true
 end
 

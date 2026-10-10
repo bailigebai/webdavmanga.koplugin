@@ -145,7 +145,7 @@ function MupdfPages:_page_count(document)
     return count
 end
 
-function MupdfPages:_render_document(document, page_number, target)
+function MupdfPages:_render_document(document, page_number, target,maximum)
     local count, count_error = self:_page_count(document)
     if not count then return nil, count_error end
     if page_number < 1 or page_number > count or page_number ~= math.floor(page_number) then
@@ -163,6 +163,8 @@ function MupdfPages:_render_document(document, page_number, target)
         local output_width, output_height, size_error = render_size(width, height, self.max_pixels)
         if not output_width then
             error_code = size_error
+        elseif maximum and output_width*output_height*4+65536>maximum then
+            error_code = "cache_limit"
         elseif type(target) ~= "string" or target == "" then
             error_code = "render_failed"
         elseif not set_zoom(draw_context, output_width / width) then
@@ -188,13 +190,13 @@ function MupdfPages:_render_document(document, page_number, target)
     return probed
 end
 
-function MupdfPages:_render(descriptor_or_path, is_remote, page_number, target)
+function MupdfPages:_render(descriptor_or_path, is_remote, page_number, target,maximum)
     local document, open_error
     if is_remote then document, open_error = self:_open_remote(descriptor_or_path)
     else document, open_error = self:_open_local(descriptor_or_path) end
     if not document then return nil, open_error end
     local ok, metadata, render_error = pcall(self._render_document, self, document,
-        page_number, target)
+        page_number, target,maximum)
     close_safely(document, "close")
     if not ok then return nil, "render_failed" end
     return metadata, render_error
@@ -202,8 +204,9 @@ end
 
 function MupdfPages:_inspect(descriptor_or_path, is_remote, remote_path, format, first_target, size)
     local page_number, output_path = target_info(first_target)
+    local probe_only=type(first_target)=="table" and first_target.probe_only==true
     local temporary = false
-    if not output_path then output_path, temporary = self.temp_name(), true end
+    if not output_path and not probe_only then output_path, temporary = self.temp_name(), true end
     local document, open_error
     if is_remote then document, open_error = self:_open_remote(descriptor_or_path)
     else document, open_error = self:_open_local(descriptor_or_path) end
@@ -213,7 +216,15 @@ function MupdfPages:_inspect(descriptor_or_path, is_remote, remote_path, format,
     end
     local count, count_error = self:_page_count(document)
     local metadata, render_error
-    if count then metadata, render_error = self:_render_document(document, page_number, output_path)
+    if count and probe_only then
+        local ok,page=protected_method(document,"openPage",page_number)
+        if ok and page then
+            local width,height=page_size(page,self:_draw_context())
+            close_safely(page,"close")
+            if width and height then metadata={format="png",width=width,height=height}
+            else render_error="corrupt_document" end
+        else render_error="render_failed" end
+    elseif count then metadata, render_error = self:_render_document(document, page_number, output_path)
     else render_error = count_error end
     close_safely(document, "close")
     if temporary then pcall(self.remove_file, output_path) end
@@ -252,7 +263,7 @@ function MupdfPages:inspect_local(path, format, first_target)
     return self:_inspect(path, false, nil, format, first_target, size)
 end
 
-function MupdfPages:render_remote(image, read_at, target)
+function MupdfPages:render_remote(image, read_at, target,maximum)
     if type(image) ~= "table" or type(read_at) ~= "function" then
         return nil, "invalid_remote_page"
     end
@@ -262,16 +273,16 @@ function MupdfPages:render_remote(image, read_at, target)
         name = image.name,
         read_at = read_at,
     }
-    return self:_render(descriptor, true, tonumber(image.mupdf_page or image.page), target)
+    return self:_render(descriptor, true, tonumber(image.mupdf_page or image.page), target,maximum)
 end
 
-function MupdfPages:render_local(image, target)
+function MupdfPages:render_local(image, target,maximum)
     if type(image) ~= "table" or type(image.path) ~= "string" then
         return nil, "invalid_local_page"
     end
     local path = image.local_path or image.source_path or image.path:match("^(.-)#mupdf/")
     if not path then return nil, "invalid_local_page" end
-    return self:_render(path, false, tonumber(image.mupdf_page or image.page), target)
+    return self:_render(path, false, tonumber(image.mupdf_page or image.page), target,maximum)
 end
 
 return MupdfPages

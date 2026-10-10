@@ -106,7 +106,20 @@ function Cover:_cancel_active()
         end
     end
 end
-function Cover:cancel_all() self:_cancel_active() end
+-- Each shelf lane owns its request lifecycle; selection/directory caches stay
+-- shared. The normal history resolver remains single-request by default.
+function Cover:fork()
+    local child=Cover:new{library=self.library,directory_store=self.directory_store,
+        document_cover=self.document_cover,search_all_children=self.search_all_children,
+        scheduler=self.scheduler,error_reporter=self.error_reporter}
+    self.children=self.children or {}
+    self.children[#self.children+1]=child
+    return child
+end
+function Cover:cancel_all()
+    self:_cancel_active()
+    for _,child in ipairs(self.children or {}) do child:cancel_all() end
+end
 function Cover:_notify(callbacks, key, value)
     if callbacks and type(callbacks[key]) == "function" then self.error_reporter:guard("load_cover", function() return callbacks[key](value) end, nil, nil, { silent = true }) end
 end
