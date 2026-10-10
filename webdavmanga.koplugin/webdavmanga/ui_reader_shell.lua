@@ -205,6 +205,20 @@ local function production_widget(shell, dependencies)
         }
         local status_index, status_widget
         if model.kind == "page" then
+            if model.grid_guides then
+                local color = model.background == "black" and dependencies.Blitbuffer.COLOR_WHITE
+                    or dependencies.Blitbuffer.COLOR_BLACK
+                root[#root + 1] = dependencies.LineWidget:new{
+                    dimen = dependencies.Geom:new{w = 1, h = shell.screen_h},
+                    overlap_offset = {math.floor(shell.screen_w / 2), 0},
+                    background = color,
+                }
+                root[#root + 1] = dependencies.LineWidget:new{
+                    dimen = dependencies.Geom:new{w = shell.screen_w, h = 1},
+                    overlap_offset = {0, math.floor(shell.screen_h / 2)},
+                    background = color,
+                }
+            end
             if model.show_progress ~= false then
                 local progress = math.max(0, math.min(1, tonumber(model.progress) or 0))
                 local width = math.floor(shell.screen_w * progress)
@@ -932,6 +946,7 @@ function ReaderShell:show_page(buffer, viewport, title, page_change, progress,
         buffer = buffer,
         viewport = viewport,
         display_scale = page_change.display_scale == 0 and 0 or 1,
+        grid_guides = page_change.grid_guides == true,
         background = page_change.background == "black" and "black" or "white",
         reader_generation = page_change.reader_generation,
         reading_token = page_change.reading_token,

@@ -827,7 +827,9 @@ function Reader:_viewport(segment)
         buffer = buffer:viewport(crop.x, crop.y, crop.w, crop.h)
     end
     local width, height = buffer_size(buffer)
-    if self.quadrant_zoom and not self.panel_entry and not self.panel_session then
+    local grid_zoom = self.reader_settings.grid_zoom_enabled == true
+        and self.quadrant_zoom and not self.panel_entry and not self.panel_session
+    if self.quadrant_zoom and not grid_zoom and not self.panel_entry and not self.panel_session then
         local box = Quadrant.viewport(width, height, self.quadrant_zoom)
         if not box or type(buffer.viewport) ~= "function" then return nil, "missing quadrant viewport" end
         return buffer:viewport(box.x, box.y, box.w, box.h)
@@ -836,16 +838,23 @@ function Reader:_viewport(segment)
         local box = PageSequence.viewport(width, height, segment,
             self.reader_settings.split_cut_percent)
         if type(buffer.viewport) ~= "function" then return nil, "missing viewport support" end
-        return buffer:viewport(box.x, box.y, box.w, box.h)
+        buffer = buffer:viewport(box.x, box.y, box.w, box.h)
+        width, height = buffer_size(buffer)
     end
     if self.panel_entry and self.panel_entry.whole_page then return buffer end
-    if self.fit_mode == "width" then
+    if segment ~= "left" and segment ~= "right" and self.fit_mode == "width" then
         local _content_w, content_h = self.shell:get_content_size()
         content_h = math.max(1, math.floor(tonumber(content_h) or height))
         if height > content_h and type(buffer.viewport) == "function" then
             local y = math.max(0, math.min(self.pan_y, height - content_h))
-            return buffer:viewport(0, y, width, math.min(content_h, height - y))
+            buffer = buffer:viewport(0, y, width, math.min(content_h, height - y))
+            width, height = buffer_size(buffer)
         end
+    end
+    if grid_zoom then
+        local box = Quadrant.viewport(width, height, self.quadrant_zoom)
+        if not box or type(buffer.viewport) ~= "function" then return nil, "missing grid viewport" end
+        return buffer:viewport(box.x, box.y, box.w, box.h)
     end
     return buffer
 end
@@ -905,6 +914,9 @@ function Reader:_display_segment(segment, checkpoint, page_change)
     local fit_whole_page = self.panel_entry and self.panel_entry.whole_page
     page_change.display_scale = (fit_whole_page or (self.quadrant_zoom and not self.panel_entry
         and not self.panel_session)) and 0 or 1
+    page_change.grid_guides = self.reader_settings.grid_zoom_enabled == true
+        and self.reader_settings.grid_zoom_guides ~= false and not self.quadrant_zoom
+        and not self.panel_entry and not self.panel_session and self.fit_mode ~= "webtoon"
     local background = self.reader_settings.display_background or "white"
     page_change.background = background == "auto"
         and (self.page_metadata and self.page_metadata.background or Webtoon.background(viewport))
@@ -1541,6 +1553,14 @@ function Reader:_open_neighbor(direction)
     return self:force_close("series_chapter")
 end
 
+function Reader:_display_navigation(segment, checkpoint, page_change)
+    local zoom = self.quadrant_zoom
+    if self.reader_settings.grid_zoom_enabled == true then self.quadrant_zoom = nil end
+    local shown, reason = self:_display_segment(segment, checkpoint, page_change)
+    if not shown then self.quadrant_zoom = zoom end
+    return shown, reason
+end
+
 function Reader:_pan_vertical(forward)
     if self.fit_mode ~= "width" or not self.page_buffer or not self.position then return false end
     local buffer = self.page_buffer
@@ -1556,8 +1576,11 @@ function Reader:_pan_vertical(forward)
     local next_y = forward and math.min(height - content_h, self.pan_y + step)
         or math.max(0, self.pan_y - step)
     if next_y == self.pan_y then return false end
+    local previous_y = self.pan_y
     self.pan_y = next_y
-    return self:_display_segment(self.position.segment, false)
+    local shown = self:_display_navigation(self.position.segment, false)
+    if not shown then self.pan_y = previous_y end
+    return shown, true
 end
 
 function Reader:next_page()
@@ -1568,7 +1591,8 @@ function Reader:next_page()
         return self:_ask_next_chapter()
     end
     if self.panel_entry then return self:_move_panel(1) end
-    if self:_pan_vertical(true) then return true end
+    local panned, attempted = self:_pan_vertical(true)
+    if attempted then return panned end
     if not self.position then return true end
     local next_position = PageSequence.next(self.position,
         self.current_segments, self:_count())
@@ -1577,7 +1601,7 @@ function Reader:next_page()
         return self:_ask_next_chapter()
     end
     if next_position.index == self.position.index then
-        return self:_display_segment(next_position.segment, true,
+        return self:_display_navigation(next_position.segment, true,
             self:_page_change(self.position.index, next_position.index,
                 self.position.segment, next_position.segment,
                 self.current_segments, self.current_segments))
@@ -1589,13 +1613,14 @@ function Reader:previous_page()
     if self.quadrant_hold and not self:onTwoFingerHoldRelease(self.shell) then return true end
     if self.webtoon_session then return self.webtoon_session:previous() end
     if self.panel_entry then return self:_move_panel(-1) end
-    if self:_pan_vertical(false) then return true end
+    local panned, attempted = self:_pan_vertical(false)
+    if attempted then return panned end
     if not self.position then return true end
     local previous = PageSequence.previous(self.position,
         self.current_segments, self:_count())
     if not previous then return true end
     if previous.index == self.position.index then
-        return self:_display_segment(previous.segment, true,
+        return self:_display_navigation(previous.segment, true,
             self:_page_change(self.position.index, previous.index,
                 self.position.segment, previous.segment,
                 self.current_segments, self.current_segments))
@@ -1630,8 +1655,9 @@ function Reader:onTwoFingerTap(source_shell, gesture)
         return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
     end
     if self.webtoon_session or not self:_quadrant_input_ready(source_shell) then return false end
-    if self.reader_settings.dynamic_panel_zoom_enabled~=true and self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
+    if self.reader_settings.grid_zoom_enabled~=true and self.reader_settings.dynamic_panel_zoom_enabled~=true and self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
         and self.reader_settings.panel_entry_gesture~=nil then return self:enter_panel_mode("first") end
+    if self.reader_settings.grid_zoom_enabled == false then return false end
     if self.quadrant_hold then return true end
     local width, height = self.shell:get_content_size()
     local quadrant = Quadrant.from_gesture(gesture, width, height)
@@ -1645,6 +1671,7 @@ function Reader:onTwoFingerTap(source_shell, gesture)
 end
 
 function Reader:onTwoFingerHold(source_shell, gesture)
+    if self.reader_settings.grid_zoom_enabled == true then return false end
     if not self:_quadrant_input_ready(source_shell)
         or (self.webtoon_session and self.webtoon_session.busy) then return false end
     if self.quadrant_hold then return true end
@@ -1789,6 +1816,10 @@ function Reader:onTap(_, gesture)
         self:_silent("show_koreader_menu", self.show_koreader_menu, false)
         return true
     end
+    if self.reader_settings.grid_zoom_enabled == true and self.quadrant_zoom
+        and self:_quadrant_input_ready(self.shell) then
+        return self:onTwoFingerTap(self.shell, gesture)
+    end
     if self.panel_entry then
         if x>=width/3 and x<=width*2/3 and y>=height/3 and y<=height*2/3 then
             return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
@@ -1831,7 +1862,8 @@ function Reader:onHold(_, gesture)
     end
     if not Dynamic.enabled(self.reader_settings) then return false end
     if self.reader_settings.dynamic_panel_zoom_enabled~=true
-        and self.reader_settings.panel_entry_gesture=="two_finger_tap" then return false end
+        and self.reader_settings.panel_entry_gesture=="two_finger_tap"
+        and self.reader_settings.grid_zoom_enabled~=true then return false end
     if self.shell and self.shell.current_model and self.shell.current_model.kind ~= "page" then return false end
     local session = self.panel_session
     if session and session:is_active() then
@@ -2187,11 +2219,13 @@ function Reader:onSwipe(_, gesture)
         end
         return true
     end
+    local turn_direction = self.quadrant_zoom and self.reader_settings.grid_zoom_enabled == true
+        and self.reader_settings.grid_zoom_rtl == true and "manga" or self.direction
     if direction == "west" then
-        if self.direction == "manga" then return self:previous_page() end
+        if turn_direction == "manga" then return self:previous_page() end
         return self:next_page()
     elseif direction == "east" then
-        if self.direction == "manga" then return self:next_page() end
+        if turn_direction == "manga" then return self:next_page() end
         return self:previous_page()
     end
     return true
@@ -2265,6 +2299,40 @@ function Reader:set_panel_option(key,value,make_default)
         if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
     end
     if not Dynamic.enabled(values) then self:exit_panel_mode() end
+    return true
+end
+
+function Reader:_restore_grid_option(previous, snapshot, zoom, hold)
+    self.reader_settings, self.quadrant_zoom, self.quadrant_hold = previous, zoom, hold
+    if snapshot and self.settings.restore_panel then self.settings:restore_panel(snapshot)
+    else self:_persist_reader(previous) end
+    if hold and self.shell.start_quadrant_hold_watch then self.shell:start_quadrant_hold_watch(hold) end
+end
+
+function Reader:set_grid_option(key, value, make_default)
+    if self.closing or not Quadrant.valid_option(key, value) then return false end
+    local previous = copy_table(self.reader_settings)
+    local snapshot = self.settings.panel_snapshot and self.settings:panel_snapshot()
+    local saved
+    if self.panel_book_key and self.settings.set_panel_reader then
+        saved = self.settings:set_panel_reader(self.panel_book_key, {[key] = value}, make_default) == true
+    else
+        local values = copy_table(previous)
+        values[key] = value
+        saved = self:_persist_reader(values)
+    end
+    if not saved then return false end
+    self.reader_settings[key] = value
+    -- A controls page is republished by its caller; keep its backdrop intact.
+    -- Disabling on a visible page must also retire the old zoom immediately.
+    local zoom, hold = self.quadrant_zoom, self.quadrant_hold
+    if key == "grid_zoom_enabled" then self:_reset_quadrant_zoom("grid setting") end
+    if self.shell.current_model and self.shell.current_model.kind == "page"
+        and not self.panel_entry and not self.webtoon_session
+        and not self:_display_segment(self.position.segment, false, {refresh_type = "partial"}) then
+        self:_restore_grid_option(previous, snapshot, zoom, hold)
+        return false
+    end
     return true
 end
 
@@ -2698,7 +2766,38 @@ function Reader:toggle_controls(section)
 
     local actions
     local title
-    if section=='dynamic' then
+    if section=='grid' then
+        title='网格象限缩放 · 本书 / 长按默认'
+        actions={}
+        for _,field in ipairs(Quadrant.fields) do
+            local f=field
+            local function apply(make_default)
+                local value=self.reader_settings[f.key]
+                if value==nil then value=f.default end
+                local previous=copy_table(self.reader_settings)
+                local snapshot=self.settings.panel_snapshot and self.settings:panel_snapshot()
+                local zoom,hold=self.quadrant_zoom,self.quadrant_hold
+                if not self:set_grid_option(f.key,not value,make_default) then return false end
+                local shown=self:_silent('reopen_grid_settings',function()
+                    return show_section('grid')
+                end,false)
+                if shown==false then
+                    self:_restore_grid_option(previous,snapshot,zoom,hold)
+                    return false
+                end
+                return shown
+            end
+            local value=self.reader_settings[f.key]
+            if value==nil then value=f.default end
+            local item=action(f.title..'：'..(value and '开启' or '关闭'),
+                'grid '..f.key,function() return apply(false) end)
+            item.hold_callback=self:_callback('grid default '..f.key,function() return apply(true) end,false)
+            actions[#actions+1]=item
+        end
+        actions[#actions+1]=action('宽图拆分设置','grid split settings',function() return show_section('split') end)
+        actions[#actions+1]=action('继续阅读','resume grid page',show_current_page)
+        actions[#actions+1]=action('← 返回设置','grid settings back',function() return show_section('root') end)
+    elseif section=='dynamic' then
         title='动态面板变焦 · 本书 / 长按默认'
         actions={}
         for _,field in ipairs(Dynamic.fields) do
@@ -3116,6 +3215,7 @@ function Reader:toggle_controls(section)
                 return show_section("panel")
             end),
             action('动态面板变焦','open native dynamic panels',function() return show_section('dynamic') end),
+            action('网格象限缩放','open independent quadrant grid',function() return show_section('grid') end),
             action("漫画去灰增强", "open gray enhancement settings", function()
                 return show_section("gray")
             end),

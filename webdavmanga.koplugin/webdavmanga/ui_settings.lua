@@ -8,6 +8,7 @@ local SafeCallback = require("webdavmanga.safe_callback")
 local UiRegistry = require("webdavmanga.ui_registry")
 local ReaderHelp = require("webdavmanga.reader_help")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
+local Quadrant = require('webdavmanga.quadrant_zoom')
 
 local UiSettings = {}
 UiSettings.__index = UiSettings
@@ -240,6 +241,10 @@ local function normalize_reader(values, current)
         if result[f.key]==nil then result[f.key]=current[f.key] end
     end
     for _,f in ipairs(Dynamic.fields) do
+        result[f.key]=values[f.key]
+        if result[f.key]==nil then result[f.key]=current[f.key] end
+    end
+    for _,f in ipairs(Quadrant.fields) do
         result[f.key]=values[f.key]
         if result[f.key]==nil then result[f.key]=current[f.key] end
     end
@@ -1053,6 +1058,8 @@ local function default_ui()
                 items=require("webdavmanga.panel_options").items()},
             {key='dynamic',title='动态面板变焦默认值',summary='原生检测、聚焦与长按周边原图；与智能分格互斥',
                 items=Dynamic.items()},
+            {key='grid',title='网格象限缩放默认值',summary='只用双指轻触进入；缩放期间 RTL 与辅助线',
+                items=Quadrant.items()},
             {
                 key = "crop", title = "裁切白边", summary = "识别强度、最大比例",
                 items = {

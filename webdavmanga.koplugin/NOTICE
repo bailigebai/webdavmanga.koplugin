@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.25
+WebDAV Manga for KOReader - version 0.4.26
 
 Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
@@ -270,3 +270,10 @@ for previously adapted component/geometry source remain above.
 
 Version 0.4.25 only expands the existing native KOReader menu tap entry to
 the full-width top and bottom twelfths. No global gesture hooks or dependencies.
+
+Independent grid quadrant zoom (0.4.26) reuses the existing borrowed viewports.
+Only a two-finger tap enters this mode; optional guide lines and zoom-only RTL
+are confined to the plugin. No global zoom, rotation or document-direction hooks.
+Interaction reference: https://github.com/Shac0x/maximum.koplugin
+revision 0f4d1fc656c4eb1f2fe1262ceceb88e7ffb7d3b8 (GPL-3.0).
+No additional source from that repository is copied for this feature.

@@ -1,5 +1,43 @@
 local Quadrant = {}
 
+-- Independent grid preferences; the existing geometry is also used by the
+-- older temporary hold zoom. No host document or device direction is changed.
+Quadrant.fields = {
+    { key = "grid_zoom_enabled", default = false, title = "网格象限缩放" },
+    { key = "grid_zoom_guides", default = true, title = "四象限辅助线" },
+    { key = "grid_zoom_rtl", default = false, title = "缩放期间右到左" },
+}
+
+function Quadrant.valid_option(key, value)
+    for _, field in ipairs(Quadrant.fields) do
+        if field.key == key then return type(value) == "boolean" end
+    end
+    return false
+end
+
+function Quadrant.normalize(values)
+    for _, field in ipairs(Quadrant.fields) do
+        if type(values[field.key]) ~= "boolean" then values[field.key] = field.default end
+    end
+    return values
+end
+
+function Quadrant.validate(values)
+    for _, field in ipairs(Quadrant.fields) do
+        if not Quadrant.valid_option(field.key, values[field.key]) then return false end
+    end
+    return true
+end
+
+function Quadrant.items()
+    local items = {}
+    for _, field in ipairs(Quadrant.fields) do
+        items[#items + 1] = { key = field.key, title = field.title,
+            choices = {{value = true, text = "开启"}, {value = false, text = "关闭"}} }
+    end
+    return items
+end
+
 local function valid_dimension(value)
     return type(value) == "number" and value > 0
         and value < math.huge and value == math.floor(value)

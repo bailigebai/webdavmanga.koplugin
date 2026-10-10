@@ -4,6 +4,7 @@ local ToneAdjust = require("webdavmanga.tone_adjust")
 
 local PanelOptions = require("webdavmanga.panel_options")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
+local Quadrant = require('webdavmanga.quadrant_zoom')
 
 local Settings = {}
 Settings.__index = Settings
@@ -79,6 +80,7 @@ local DEFAULT_READER = {
 }
 
 for _, field in ipairs(PanelOptions.fields) do DEFAULT_READER[field.key]=field.default end
+for _, field in ipairs(Quadrant.fields) do DEFAULT_READER[field.key]=field.default end
 
 local DEFAULT_BROWSE_CACHE = {
     total_mb = 5120,
@@ -686,6 +688,7 @@ function Settings:get_reader()
         reader.tone_adjust_sample_path) or ""
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
     Dynamic.normalize(reader)
+    Quadrant.normalize(reader)
     reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
     if not one_of(reader.bubble_zoom_trigger,{"hold","tap","both"}) then reader.bubble_zoom_trigger="both" end
     PanelOptions.normalize(reader)
@@ -714,6 +717,7 @@ function Settings:set_reader(values)
         or values.prefetch_far_count ~= nil
     local previous = self:get_reader()
     local reader = with_defaults(previous, values)
+    if not Quadrant.validate(reader) then return nil, 'invalid_grid_zoom_settings' end
     if not Dynamic.validate(reader) then return nil, 'invalid_dynamic_panel_settings' end
     Dynamic.resolve(reader, previous)
     if type(reader.graydither_enabled) ~= "boolean"
@@ -1189,6 +1193,7 @@ local PANEL_CHOICES={
 }
 for _,f in ipairs(PanelOptions.fields) do PANEL_CHOICES[f.key]=f.choices end
 for _,f in ipairs(Dynamic.fields) do PANEL_CHOICES[f.key]=f.choices end
+for _,f in ipairs(Quadrant.fields) do PANEL_CHOICES[f.key]={false,true} end
 local function book_key(key)
     return type(key)=="string" and #key==32 and key:match("^%x+$") and key:lower()
 end
