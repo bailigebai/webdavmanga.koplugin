@@ -94,7 +94,7 @@ def main() -> None:
                   limits="Offline ARM32 LuaJIT/QEMU, actual KOReader fork/pipe/reap and JPEG/scale/PNG. "
                   "Cache/client are IO boundaries; this is not measured Kindle loading speed.")
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    args.report.write_bytes((json.dumps(report, indent=2) + "\n").encode("utf-8"))
     print(json.dumps(report), flush=True)
 
 
