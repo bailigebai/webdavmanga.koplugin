@@ -496,14 +496,30 @@ local function default_ui()
         if self.model.on_visible then pcall(self.model.on_visible, self.visible_ids) end
     end
 
+    function GridWidget:defer_visible()
+        self.visible_sequence=(self.visible_sequence or 0)+1
+        local sequence=self.visible_sequence
+        local function publish()
+            if not self.closed and adapter.widget==self and sequence==self.visible_sequence then
+                self:publish_visible()
+            end
+        end
+        -- Wait for a paint/input iteration, rather than doing PNG work inside
+        -- the page button callback. Sequence checks also reject rapid flips.
+        if UIManager.tickAfterNext then return UIManager:tickAfterNext(publish) end
+        if UIManager.scheduleIn then return UIManager:scheduleIn(.02,publish) end
+        publish()
+    end
+
     function GridWidget:set_page(page)
         local total_pages = math.max(1, math.ceil(#self.model.items / self.page_size))
         local next_page = math.max(1, math.min(total_pages, page))
         if next_page == self.page then return false end
+        if self.model.on_visibility_changing then self.model.on_visibility_changing() end
         self.page = next_page
         self:_rebuild()
-        self:publish_visible()
-        UIManager:setDirty(self, "ui")
+        UIManager:setDirty(self, "full", Screen:getSize())
+        self:defer_visible()
         return true
     end
 
@@ -532,10 +548,11 @@ local function default_ui()
     end
 
     function GridWidget:set_multi_select(enabled)
+        if self.model.on_visibility_changing then self.model.on_visibility_changing() end
         self.model.multi_select = enabled == true
         self:_rebuild()
-        self:publish_visible()
-        UIManager:setDirty(self, "ui")
+        UIManager:setDirty(self, "full", Screen:getSize())
+        self:defer_visible()
         return true
     end
 
@@ -591,15 +608,8 @@ local function default_ui()
                 cache_complete = item.cache_complete == true,
             }
         end
-        UIManager:show(widget)
-        local function publish()
-            if self.widget == widget then widget:publish_visible() end
-        end
-        if type(UIManager.nextTick) == "function" then
-            local ok, result = pcall(UIManager.nextTick, UIManager, publish)
-            if ok and result ~= false then return end
-        end
-        publish()
+        UIManager:show(widget, "full", Screen:getSize())
+        widget:defer_visible()
     end
 
     function adapter:get_cover_size()
@@ -666,6 +676,8 @@ function CoverGrid:new(deps)
     object.image_probe = deps.image_probe or require("webdavmanga.image_probe")
     object.render_document_cover = deps.render_document_cover
     object.scheduler = deps.scheduler or default_scheduler()
+    object.render_batch_size=math.max(0,math.min(2,math.floor(tonumber(deps.render_batch_size) or 0)))
+    object.render_queue={}
     object.ui = deps.ui
     if not object.ui and not deps.defer_ui then object.ui=default_ui() end
     object.error_reporter = deps.error_reporter
@@ -703,6 +715,12 @@ function CoverGrid:_cancel_active_work()
     local generation = self.active_generation
     self.active_generation = nil
     self.queue = {}
+    self.render_queue={}
+    self.render_task=nil
+    if self.render_schedule and self.scheduler and self.scheduler.unschedule then
+        pcall(self.scheduler.unschedule,self.scheduler,self.render_schedule)
+    end
+    self.render_schedule=nil
     for _,slot in ipairs(self.resolution_slots) do
         local task=slot.task;slot.task=nil
         if task and task.handle and task.handle.cancel then pcall(task.handle.cancel,task.handle) end
@@ -739,13 +757,16 @@ function CoverGrid:_renderer()
     return self.render_image
 end
 
-function CoverGrid:_render_cover(generation, item, local_path)
+function CoverGrid:_render_cover(generation, item, local_path, metadata)
     if not self:_is_current(generation) then return false end
     local renderer = self:_renderer()
     if not renderer or type(renderer.renderImageFile) ~= "function" then return false end
     local width, height = self:_target_size()
     if self.fit_whole_image then
-        local inspected,info=pcall(self.image_probe.inspect,local_path,nil)
+        local inspected,info=true,metadata
+        if not info or info.validated~=true then
+            inspected,info=pcall(self.image_probe.inspect,local_path,nil)
+        end
         if not inspected or not info then return false end
         width,height=require("webdavmanga.page_processor").target_size(info.width,info.height,
             {fit_mode="page",split_enabled=false},width,height)
@@ -823,6 +844,50 @@ function CoverGrid:_render_document_cover(generation, item, local_path)
     return updated ~= false
 end
 
+function CoverGrid:_schedule_render()
+    if self.render_task or #self.render_queue==0 then return end
+    local task
+    task=function()
+        if self.render_task~=task then return end
+        self.render_task=nil;self.render_schedule=nil
+        for _=1,self.render_batch_size do
+            local job=table.remove(self.render_queue,1)
+            if not job then break end
+            if self:_is_current(job.generation) then
+                pcall(self._render_cover,self,job.generation,job.item,job.path,job.metadata)
+                if job.done then job.done() end
+            end
+        end
+        self:_schedule_render()
+    end
+    self.render_task=task
+    local function after_paint()
+        if self.render_task~=task then return end
+        if self.scheduler and self.scheduler.scheduleIn then
+            local ok,result=pcall(self.scheduler.scheduleIn,self.scheduler,.02,task)
+            if ok and result~=false then self.render_schedule=task;return end
+        end
+        task()
+    end
+    if self.scheduler and self.scheduler.tickAfterNext then
+        -- tickAfterNext alone only guarantees paint. KOReader drains its
+        -- immediate tasks before polling touch, so pace *after* that paint.
+        local ok,result=pcall(self.scheduler.tickAfterNext,self.scheduler,after_paint)
+        if ok and result~=false then self.render_schedule=result or after_paint;return end
+    end
+    after_paint()
+end
+
+function CoverGrid:_display_cover(generation,item,path,done,metadata)
+    if not self:_is_current(generation) then return end
+    if self.render_batch_size==0 then
+        pcall(self._render_cover,self,generation,item,path,metadata)
+        return done()
+    end
+    self.render_queue[#self.render_queue+1]={generation=generation,item=item,path=path,done=done,metadata=metadata}
+    self:_schedule_render()
+end
+
 function CoverGrid:_request_download(generation, item, image, on_done)
     if not self:_is_current(generation) then return end
     if self.loader.protect_cover then self.loader:protect_cover(generation, image) end
@@ -832,19 +897,17 @@ function CoverGrid:_request_download(generation, item, image, on_done)
         finished = true
         if self:_is_current(generation) and on_done then on_done() end
     end
-    local local_path = self:_cache_path(image)
+    local local_path,metadata = self:_cache_path(image)
     if local_path then
-        pcall(self._render_cover,self,generation,item,local_path)
-        done()
+        self:_display_cover(generation,item,local_path,done,metadata)
         return
     end
     local ok, handle = pcall(self.loader.request_cover, self.loader,
         generation, image, {
-            on_ready = function(path)
+            on_ready = function(path,_cached,metadata)
                 -- A broken card must not occupy its lane forever. The outer
                 -- async callback guard reports errors but cannot advance it.
-                pcall(self._render_cover,self,generation,item,path)
-                done()
+                self:_display_cover(generation,item,path,done,metadata)
             end,
             on_error = done,
         })
@@ -1033,6 +1096,9 @@ function CoverGrid:show(options)
         multi_select = false,
         selected_ids = {},
         ui = self.ui,
+        on_visibility_changing=self:_guard(view,"cancel previous covers",function()
+            self:_cancel_active_work()
+        end,false),
         on_visible = self:_guard(view, "load visible covers", function(ids)
             local anchor=ids and ids[1]
             if first_visible and options.initial_item_id then

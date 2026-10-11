@@ -63,12 +63,13 @@ function Shelf:new(options)
         end,
         source_kind_provider=function() return o.settings:get_connection().kind or "webdav" end}
     o.loader=options.thumbnail_loader or ThumbnailLoader:new{cache=o.cache,
-        loader=o.source_loader,identity=id.."\0bookshelf-thumbnail-v1",renderer=options.render_image}
+        loader=o.source_loader,identity=id.."\0bookshelf-thumbnail-v1",renderer=options.render_image,
+        async=options.async or require("webdavmanga.async"),error_reporter=options.error_reporter}
     if o.loader.set_target_size then o.loader:set_target_size(384,512) end
     o.grid=options.grid or Grid:new{cover_service=o.cover,cache=o.cache,loader=o.loader,
         settings=o.settings,connection_provider=function() return o.settings:get_connection() end,
         scheduler=options.scheduler,render_image=options.render_image,ui=options.grid_ui,defer_ui=true,
-        fit_whole_image=true,cover_concurrency=concurrency,
+        fit_whole_image=true,cover_concurrency=concurrency,render_batch_size=2,
         error_reporter=options.error_reporter}
     o.settings_ui=options.settings_ui or SettingsUi:new{cache=o.cache,settings=o.settings,
         ui=options.settings_ui_adapter,error_reporter=options.error_reporter,

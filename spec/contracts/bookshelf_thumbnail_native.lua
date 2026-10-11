@@ -4,7 +4,7 @@ local ffi=require("ffi")
 assert(ffi.arch=="arm" and ffi.abi("32bit"))
 local libraries=assert(loadfile("/output/libraries.lua"))()
 ffi.loadlib=function(name) return ffi.load(assert(libraries[name],name)) end
-package.preload["ffi/util"]=function() return {idiv=function(a,b) return math.floor(a/b) end} end
+local ffiutil=require("ffi/util")
 package.preload.logger=function() return {dbg=function() end,warn=function() end,info=function() end} end
 package.preload.dbg=function() return {guard=function() end} end
 package.preload.device=function() return {hasColorScreen=function() return false end} end
@@ -38,7 +38,16 @@ local source={identity="source",request_cover=function(_,_,image,cb)
     cb.on_ready("/output/source.jpg",false,{width=input.width,height=input.height})
     return true
 end}
-local thumb=Thumbnail:new{cache=cache,loader=source,identity="thumbnail",renderer=Renderer}
+local tasks={}
+local scheduler={scheduleIn=function(_,delay,callback)
+    tasks[#tasks+1]={at=ffiutil.getTimestamp()+(delay or 0),callback=callback}
+end}
+local Async=require("webdavmanga.async")
+local async={run=function(work,done,options)
+    options.scheduler=scheduler;options.ffiutil=ffiutil
+    return Async.run(work,done,options)
+end}
+local thumb=Thumbnail:new{cache=cache,loader=source,identity="thumbnail",renderer=Renderer,async=async}
 local image={name="source.jpg",path="/comic/001.jpg",size=bytes("/output/source.jpg")}
 local original_size=image.size
 local cases={}
@@ -47,6 +56,15 @@ for _,target in ipairs({{120,160},{240,320},{384,512}}) do
     local result
     thumb:request_cover("g",image,{on_ready=function(path) result=path end,
         on_error=function(err) error(tostring(err.detail)) end})
+    assert(not result and #tasks>0,"PNG must be generated in a child, not the source callback")
+    local deadline=ffiutil.getTimestamp()+120
+    while not result and #tasks>0 and ffiutil.getTimestamp()<deadline do
+        table.sort(tasks,function(a,b) return a.at<b.at end)
+        local task=table.remove(tasks,1)
+        local delay=task.at-ffiutil.getTimestamp()
+        if delay>0 then ffiutil.usleep(math.floor(delay*1000000)) end
+        task.callback()
+    end
     assert(result,"thumbnail must render")
     local record=records[thumb:cover_key(image)]
     assert(record.width<=target[1] and record.height<=target[2])
@@ -58,6 +76,6 @@ for _,target in ipairs({{120,160},{240,320},{384,512}}) do
 end
 assert(bytes("/output/source.jpg")==original_size)
 local f=assert(io.open("/output/thumbnail-native-result.json","wb"))
-f:write(json.encode({arch=ffi.arch,source_bytes=original_size,source_requests=source_requests,
+f:write(json.encode({arch=ffi.arch,background_subprocess=true,source_bytes=original_size,source_requests=source_requests,
     cases=cases,original_unchanged=true}));f:close()
-print("PASS actual KOReader JPEG decode, bounded thumbnail PNGs and warm cache")
+print("PASS actual KOReader ARM subprocess JPEG decode, bounded thumbnail PNGs and warm cache")

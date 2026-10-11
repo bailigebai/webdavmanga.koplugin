@@ -76,7 +76,7 @@ def main() -> None:
                 "/checks/bookshelf_thumbnail_native.lua"]
     subprocess.run(command, check=True)
     report = json.loads((output / "thumbnail-native-result.json").read_text(encoding="utf-8"))
-    assert len(report["cases"]) == 3 and report["original_unchanged"]
+    assert len(report["cases"]) == 3 and report["original_unchanged"] and report["background_subprocess"]
     for row in report["cases"]:
         with Image.open(output / row["file"]) as image:
             image.load()
@@ -91,7 +91,7 @@ def main() -> None:
                   reference_runtime_zip_sha256=sha256(args.runtime_zip),
                   test_sha256=sha256(ROOT / "spec/contracts/bookshelf_thumbnail_native.lua"),
                   runner_sha256=sha256(Path(__file__)),
-                  limits="Offline ARM32 LuaJIT/QEMU, actual KOReader JPEG/scale/PNG. "
+                  limits="Offline ARM32 LuaJIT/QEMU, actual KOReader fork/pipe/reap and JPEG/scale/PNG. "
                   "Cache/client are IO boundaries; this is not measured Kindle loading speed.")
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

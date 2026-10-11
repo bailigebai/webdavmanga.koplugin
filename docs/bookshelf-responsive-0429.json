@@ -1,0 +1,41 @@
+{
+  "version": "0.4.29",
+  "base": "858d3b10855e6ca63e849d816ef1280a3f447e65",
+  "passed": true,
+  "runtime_sha256": "50f98441e18721d7d75141c4897cc59636797d796e73412d221485f894648b81",
+  "checks": [
+    {
+      "spec": "spec/bookshelf_responsive_cache_spec.lua",
+      "test_sha256": "fde4ee476903226e87716ae94654db1a0bba172e45578b00ea5a5689912b53dc",
+      "baseline_module_sha256": "4b24b283307a18c661995f799c8f8d39d7ee444c51213003ec04f9c37a2aa855",
+      "baseline_failed": true,
+      "baseline_error": "[string \"<python>\"]:2: six writers share one auxiliary scan per pending calculation\nstack traceback:\n\t[string \"<python>\"]:37: in main chunk\n\t[string \"<python>\"]:2: in function 'expect'\n\t[C]: in function 'assert'",
+      "current_passed": true
+    },
+    {
+      "spec": "spec/bookshelf_responsive_grid_spec.lua",
+      "test_sha256": "7833590c80c72993363b127b31189c0e069698f70c6a1d38b2f6b138d884fa2c",
+      "baseline_module_sha256": "4f601baf33fea64b2ea4c0547d9fbb0031eb70cd097d77658f0e08641fb21f4f",
+      "baseline_failed": true,
+      "baseline_error": "[string \"<python>\"]:89: [string \"<python>\"]:2: page button returns before starting visible cover work\n[string \"<python>\"]:2: page changes request one full ink refresh\n[string \"<python>\"]:2: rapid flips publish only the latest page\n[string \"<python>\"]:2: returning from 20 books to 3 folders clears the old ink page\n[string \"<python>\"]:2: warm page does not synchronously decode all 15 PNGs\n[string \"<python>\"]:2: one frame renders at most two covers\n[string \"<python>\"]:2: new page drops every queued old render\n[string \"<python>\"]:2: exit rejects delayed rendering\nstack traceback:\n\t[string \"<python>\"]:89: in main chunk\n\t[C]: in function 'assert'",
+      "current_passed": true
+    },
+    {
+      "spec": "spec/bookshelf_responsive_thumbnail_spec.lua",
+      "test_sha256": "c9843b1ab41f11a80aa51c549a7d0ff2d6c12d53dd71d2d6dbb5bce2a5a589ec",
+      "baseline_module_sha256": "2a58dacc1bba68798ac5e0dceda920acdcc5028c05067bc5fc2da2afb5c2a491",
+      "baseline_failed": true,
+      "baseline_error": "[string \"<python>\"]:34: attempt to index field '?' (a nil value)\nstack traceback:\n\t[string \"<python>\"]:90: in main chunk\n\t[string \"<python>\"]:34: in function 'ready'",
+      "current_passed": true
+    }
+  ],
+  "cache_fixture": {
+    "completed_cover_files": 3000,
+    "writers": 6,
+    "baseline_scans": 6,
+    "baseline_unrelated_stats": 18000,
+    "current_scans": 1,
+    "current_unrelated_stats": 0
+  },
+  "limits": "Real upstream UIManager methods with clock, IO and paint boundaries; no measured Kindle latency or eink ghosting."
+}

@@ -30,14 +30,14 @@ local function default_filesystem()
         open = function(path, mode) return io.open(path, mode) end,
         rename = function(source, target) return os.rename(source, target) end,
         remove = function(path) return os.remove(path) end,
-        list = function(root)
+        list = function(root, filter)
             local ok, iterator, directory = pcall(lfs.dir, root)
             if not ok or not iterator then return function() return nil end end
             return function()
                 while true do
                     local next_ok, name = pcall(iterator, directory)
                     if not next_ok or not name then return nil end
-                    if name ~= "." and name ~= ".." then
+                    if name ~= "." and name ~= ".." and (not filter or filter(name)) then
                         local path = root .. "/" .. name
                         local attributes = lfs.attributes(path)
                         if attributes and attributes.mode == "file" then
@@ -142,8 +142,8 @@ local function valid_entries(entries, root)
     return true
 end
 
-local function each_file(fs, root, callback)
-    local listed = fs.list(root)
+local function each_file(fs, root, callback, filter)
+    local listed = fs.list(root, filter)
     if type(listed) == "function" then
         while true do
             local file = listed()
@@ -277,35 +277,49 @@ function Cache:unprotect(key)
     return true
 end
 
+function Cache:_part_sizes(parts)
+    local sizes={}
+    for part in pairs(parts) do
+        -- Consume only the first result; missing files also return an error.
+        local size=self.fs.size(part)
+        sizes[part]=tonumber(size) or 0
+        if self.unified_quota then
+            local zip_size=self.fs.size(part..".zipwork")
+            sizes[part]=sizes[part]+(tonumber(zip_size) or 0)
+        end
+    end
+    if not next(parts) or not self.unified_quota or not self.fs.list then return sizes end
+    local function owner(path)
+        local marker=path and path:find(".wdm-",1,true)
+        local part=marker and path:sub(1,marker-1)
+        return part and parts[part] and part
+    end
+    -- One pass for all writers. Filter names before statting: thousands of
+    -- completed thumbnails do not participate in a writer's temporary budget.
+    each_file(self.fs,self.root,function(entry)
+        local part=owner(entry.path)
+        if part then
+            local size=self.fs.size(entry.path)
+            sizes[part]=sizes[part]+(tonumber(size) or tonumber(entry.size) or 0)
+        end
+    end,function(name) return owner(self.root.."/"..name)~=nil end)
+    return sizes
+end
 function Cache:_part_size(part)
-    -- Consume only the size; filesystem errors may also return an error string.
-    local part_size = self.fs.size(part)
-    local size=tonumber(part_size) or 0
-    if self.unified_quota then
-        local zipwork_size = self.fs.size(part..".zipwork")
-        size=size+(tonumber(zipwork_size) or 0)
-    end
-    if self.unified_quota and self.fs.list then
-        each_file(self.fs,self.root,function(entry)
-            if entry.path and entry.path:sub(1,#part+5)==part..".wdm-" then
-                local entry_size = self.fs.size(entry.path)
-                size=size+(tonumber(entry_size) or tonumber(entry.size) or 0)
-            end
-        end)
-    end
-    return size
+    return self:_part_sizes({[part]=true})[part]
 end
 function Cache:pending_size()
     local size=0
-    for path in pairs(self.owned_parts) do size=size+self:_part_size(path) end
+    for _,bytes in pairs(self:_part_sizes(self.owned_parts)) do size=size+bytes end
     return size
 end
 function Cache:write_budget(reserve,required,part,maximum)
     reserve=math.max(0,tonumber(reserve) or 0)
     local disk=self.store.on_disk_size and self.store:on_disk_size() or 0
     local held=0
+    local part_sizes=self:_part_sizes(self.write_reservations or {})
     for path,amount in pairs(self.write_reservations or {}) do
-        if path~=part then held=held+math.max(0,amount-self:_part_size(path)) end
+        if path~=part then held=held+math.max(0,amount-part_sizes[path]) end
     end
     self:evict((tonumber(required) or 0)+reserve+disk+held,self.protected_keys)
     local available=math.max(0,self.limit_bytes-self:total_size()-disk-reserve-held)
@@ -915,6 +929,8 @@ function Cache:discard_part(key, extension, part_token)
             if entry.path and entry.path:sub(1,#part_path+5)==part_path..".wdm-" then
                 self.fs.remove(entry.path)
             end
+        end,function(name)
+            return (self.root.."/"..name):sub(1,#part_path+5)==part_path..".wdm-"
         end)
     end
     local removed = self.fs.remove(part_path)
