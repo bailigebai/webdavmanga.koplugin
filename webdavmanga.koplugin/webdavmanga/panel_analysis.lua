@@ -60,13 +60,13 @@ local function sample(raster,options)
     if options.background_detection=="light" then background=255
     elseif options.background_detection=="dark" then background=0 end
     local threshold=options.detection_threshold or 40
-    if threshold~=25 and threshold~=40 and threshold~=55 and threshold~=70 then threshold=40 end
+    if not finite(threshold) or threshold%1~=0 or threshold<1 or threshold>254 then threshold=40 end
     local ink=0
     for i=0,w*h-1 do
         data[i]=math.abs(data[i]-background)>threshold and 1 or 0
         ink=ink+data[i]
     end
-    return {w=w,h=h,data=data,ink=ink}
+    return {w=w,h=h,data=data,ink=ink,bg=background}
 end
 local function padded(r,map,amount)
     local x,y=math.max(0,math.floor(r.x-amount)),math.max(0,math.floor(r.y-amount))
@@ -128,6 +128,11 @@ local function detect(raster,options)
     local map=sample(raster,options)
     if map.ink==0 then return nil,"no_panels" end
     local panels,reason=Components.segment(map,{component_frame_min=1,segment_max_panels=64})
+    if #panels<=1 and reason~="too_many_panels" then
+        local divided,gutter_reason=require("webdavmanga.panel_gutters").segment(map)
+        if #divided>#panels then panels=divided end
+        if gutter_reason=="too_many_panels" then return nil,gutter_reason end
+    end
     if #panels==0 then return nil,reason or "no_panels" end
     if #panels==1 and panels[1].w*panels[1].h<map.w*map.h*.6 then
         return nil,"panel_layout_uncertain"

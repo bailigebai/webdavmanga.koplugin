@@ -1942,7 +1942,9 @@ function Reader:_show_panel(buffer, _panel, index, count, render_options)
     if self.closing or not self.shell or not self.position then return false end
     render_options = render_options or (self.panel_session and self.panel_session.render_options)
     local shown = self.shell:show_page(buffer, buffer, nil, {
-        refresh_type = "partial", reading_token = self:_reading_token("panel", index, render_options),
+        refresh_type = "partial", animate=render_options and render_options.animate==true,
+        forward=not render_options or render_options.forward~=false,
+        reading_token = self:_reading_token("panel", index, render_options),
         reader_generation=self.generation,
     },
         (self.position.index - 1 + index / count) / self:_count(),
@@ -1997,15 +1999,6 @@ function Reader:enter_panel_mode(desired)
     local ok, session = pcall(self.panel_session_factory, {
         source = self.panel_source, detector = self.reader_settings.dynamic_panel_zoom_enabled
             and Dynamic or self.panel_detector, schedule = schedule,
-        schedule_frame=shell.scheduler and shell.scheduler.scheduleIn and function(delay,callback)
-            return shell.scheduler:scheduleIn(delay,callback)
-        end,
-        cancel_frame=shell.scheduler and shell.scheduler.unschedule and function(callback)
-            return shell.scheduler:unschedule(callback)
-        end,
-        animation_allowed=function()
-            return not (shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed())
-        end,
         screen_width = width, screen_height = height,
     })
     if not ok or not session then return self:_panel_fallback("panel_source_unavailable") end
@@ -2028,9 +2021,6 @@ function Reader:enter_panel_mode(desired)
         background_detection=self.reader_settings.panel_background_detection,
         transition_mode=shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed()
             and "classic" or self.reader_settings.panel_transition_mode or "classic",
-        transition_duration=self.reader_settings.panel_transition_duration,
-        transition_frames=self.reader_settings.panel_transition_frames,
-        cross_page=self.panel_cross_page==true and self.reader_settings.panel_transition_cross_page==true,
     }
     if self.reader_settings.dynamic_panel_zoom_enabled then Dynamic.request(self.reader_settings,request) end
     local started = session:start(request, {
@@ -2260,8 +2250,7 @@ function Reader:set_panel_option(key,value,make_default)
     end
     local camera_keys={panel_view="view",panel_rotation="rotation",
         panel_standard_margin_percent="margin_percent",panel_show_adjacent="show_adjacent",
-        panel_protect_text="protect_text",panel_transition_mode="transition_mode",
-        panel_transition_frames="transition_frames",panel_transition_duration="transition_duration"}
+        panel_protect_text="protect_text",panel_transition_mode="transition_mode"}
     local camera_key=camera_keys[key]
     if values.dynamic_panel_zoom_enabled then
         camera_key=key=='dynamic_panel_margin_percent' and 'margin_percent' or nil
@@ -2706,6 +2695,22 @@ function Reader:show_split_cut_input()
     return false
 end
 
+function Reader:show_panel_threshold_input(make_default)
+    local Options=require("webdavmanga.panel_options")
+    local field
+    for _,f in ipairs(Options.fields) do if f.key=="panel_detection_threshold" then field=f end end
+    local model={title=field.title..(make_default and " · 保存为默认" or " · 本书"),
+        value=tostring(self.reader_settings[field.key] or field.default),description=field.description,
+        on_save=self:_callback("save exact panel threshold",function(text)
+            local value=tonumber(text)
+            if not Options.valid(field,value) then return false end
+            return self:set_panel_option(field.key,value,make_default)
+        end,false)}
+    if self.ui and type(self.ui.show_number_input)=="function" then return self.ui:show_number_input(model) end
+    if self.shell and type(self.shell.show_number_input)=="function" then return self.shell:show_number_input(model) end
+    return false
+end
+
 function Reader:show_crop_input(name)
     if name ~= "auto_crop_strength" and name ~= "auto_crop_max_percent" then return false end
     local is_strength = name == "auto_crop_strength"
@@ -2880,7 +2885,7 @@ function Reader:toggle_controls(section)
     elseif section=="panel_advanced" then
         title="更多分格设置 · 本书 / 长按默认"
         actions={
-            action("过渡效果与性能","panel motion settings",function() return show_section("panel_motion") end),
+            action("分格翻页动画","panel motion settings",function() return show_section("panel_motion") end),
             action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
             action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
             action("← 返回分格视图","return to panel view",function() return show_section("panel_view") end),
@@ -2888,7 +2893,7 @@ function Reader:toggle_controls(section)
     elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
         local Options=require("webdavmanga.panel_options")
         local group=section:sub(7)
-        title=({motion="过渡效果与性能",navigation="触发手势与导航",detection="裁切与识别"})[group]
+        title=({motion="分格翻页动画",navigation="触发手势与导航",detection="裁切与识别"})[group]
             .." · 点按本书 / 长按默认"
         actions={}
         for _,field in ipairs(Options.fields) do
@@ -2897,8 +2902,9 @@ function Reader:toggle_controls(section)
                 local value=self.reader_settings[f.key]
                 if value==nil then value=f.default end
                 local index=Options.index(f,value) or 1
-                local target=f.choices[index%#f.choices+1]
+                local target=f.choices and f.choices[index%#f.choices+1]
                 local function apply(default)
+                    if f.minimum then return self:show_panel_threshold_input(default) end
                     if not self:set_panel_option(f.key,target,default) then return false end
                     return show_section(section)
                 end

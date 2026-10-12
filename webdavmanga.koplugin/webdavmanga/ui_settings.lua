@@ -240,6 +240,7 @@ local function normalize_reader(values, current)
     for _,f in ipairs(require("webdavmanga.panel_options").fields) do
         result[f.key]=values[f.key]
         if result[f.key]==nil then result[f.key]=current[f.key] end
+        if f.minimum then result[f.key]=tonumber(result[f.key]) end
     end
     for _,f in ipairs(Dynamic.fields) do
         result[f.key]=values[f.key]

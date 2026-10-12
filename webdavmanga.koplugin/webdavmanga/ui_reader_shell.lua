@@ -861,12 +861,18 @@ function ReaderShell:cancel_transition()
     return false
 end
 
+function ReaderShell:_has_software_animation()
+    return self.screen and self.screen._swipe_animation_core_patch_applied==true
+        and self.ui_manager and type(self.ui_manager.swipe_animation_defaults)=="table"
+        and type(_G.SwipeAnimation)=="table" and type(_G.SwipeAnimation.runSwipeAnimation)=="function"
+end
+
 function ReaderShell:_arm_native_animation(forward)
     if self.closed or not self.supports_animation then return false end
     local device, screen = self.device, self.screen
     if not device or not screen then return false end
     local checked, capable = pcall(device.canDoSwipeAnimation, device)
-    if not checked or capable ~= true then return false end
+    if (not checked or capable ~= true) and not self:_has_software_animation() then return false end
     local enabled, enable_result = pcall(screen.setSwipeAnimations, screen, true)
     if not enabled or enable_result == false then return false end
     local directed, direction_result = pcall(

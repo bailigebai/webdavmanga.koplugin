@@ -1198,7 +1198,10 @@ local PANEL_CHOICES={
     panel_hold_margin_percent={2,5,10,15,20},panel_initial_zoom={1,1.2,1.5,2},
     panel_experimental_sort={false,true},
 }
-for _,f in ipairs(PanelOptions.fields) do PANEL_CHOICES[f.key]=f.choices end
+local PANEL_NUMBERS={}
+for _,f in ipairs(PanelOptions.fields) do
+    if f.minimum then PANEL_NUMBERS[f.key]=f else PANEL_CHOICES[f.key]=f.choices end
+end
 for _,f in ipairs(Dynamic.fields) do PANEL_CHOICES[f.key]=f.choices end
 for _,f in ipairs(Quadrant.fields) do PANEL_CHOICES[f.key]={false,true} end
 local function book_key(key)
@@ -1208,7 +1211,8 @@ local function panel_values(values,strict)
     local result={}
     if type(values)~="table" then return strict and nil or result end
     for k,v in pairs(values) do
-        if PANEL_CHOICES[k] and one_of(v,PANEL_CHOICES[k]) then result[k]=v
+        if PANEL_NUMBERS[k] and PanelOptions.valid(PANEL_NUMBERS[k],v) then result[k]=v
+        elseif PANEL_CHOICES[k] and one_of(v,PANEL_CHOICES[k]) then result[k]=v
         elseif strict then return nil end
     end
     return Dynamic.override(result)

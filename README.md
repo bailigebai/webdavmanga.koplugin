@@ -1,3 +1,11 @@
+## 0.4.30 分格识别与宿主动画
+
+- 识别阈值可直接输入1–254整数，支持本书设置与长按保存默认。
+- 在已有框线检测未能拆开页面时，补入Meguru递归沟槽、斜向沟槽及框内空白保护；继续使用现有对白保护和阅读顺序。
+- 分格动画设置只保留经典与原生 / 已安装 Swipe Animation；移除独立自绘淡入和移动帧，不覆盖KOReader核心。
+- [安装包](downloads/webdavmanga.koplugin-v0.4.30-20261012-panel-refinement.zip) · [版本说明](docs/releases/v0.4.30.md)
+- [Meguru参考代码](https://github.com/Craftwork2720/meguru/blob/8ed689e920d6175ddbbe82ddb900d1b091101dd8/meguru/panel.lua) · [Swipe Animation接口](https://github.com/koplugin-swipe-animation/Swipe_Animation.koplugin/blob/59dce480c38538976325f7ebc0831e36bc4c6ed4/patches/2-swipe-animation-core.lua)
+
 # KOReader WebDAV 漫画插件
 
 当前源码：**0.4.29，2026-10-11 漫画书架翻页响应与完整刷新，设备测试版**。OPDS、设置、分类/评分/缓存架和指针阅读统一保留插件背景；退出时背景最后关闭；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
