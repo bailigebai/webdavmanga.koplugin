@@ -58,16 +58,17 @@ function PanelSession:_fallback(token, reason)
     if self.token == token then self:close() end
 end
 
-function PanelSession:_render(index,options)
+function PanelSession:_render(index,options,candidate)
     if self.rendering then return nil, "panel_session_busy" end
-    local token, handle, panel_id = self.token, self.handle, self.panels[index].id
+    local token, handle, layout = self.token, self.handle, self.panels
+    local panel = candidate or layout[index]
     -- Keep the reservation until native render unwinds, even if close is reentered.
     self.rendering = true
-    local ok, buffer, reason = pcall(handle.render, handle, self.panels[index], options or self.render_options)
+    local ok, buffer, reason = pcall(handle.render, handle, panel, options or self.render_options)
     self.rendering = false
     if not ok then return nil, "panel_render_failed" end
     if self.token ~= token then release(buffer, "free"); return nil, "panel_session_closed" end
-    if not self.panels[index] or self.panels[index].id ~= panel_id then
+    if self.panels ~= layout then
         release(buffer, "free"); return nil, "panel_session_stale"
     end
     return buffer, reason or "panel_render_failed"
@@ -93,20 +94,23 @@ function PanelSession:_schedule_next()
     end)
 end
 
-function PanelSession:_publish(index, buffer,options)
+function PanelSession:_publish(index, buffer,options,candidate)
     local token, pending = self.token, {buffer=buffer}
     self.pending = pending
     local callback = self.callbacks and self.callbacks.on_panel
     local ok, accepted = false, false
     local publication={}
     for k,v in pairs(options or self.render_options) do publication[k]=v end
-    publication.animate=self.active and self.index~=index and publication.transition_mode=="native" or false
+    local panels = candidate and candidate.panels or self.panels
+    publication.layout_revision = self.layout_revision or 0
+    if candidate then publication.layout_revision = publication.layout_revision + 1 end
+    publication.animate=not candidate and self.active and self.index~=index and publication.transition_mode=="native" or false
     publication.forward=not self.index or index>self.index
-    if self.direction=="manga" then publication.forward=not publication.forward end
+    if (candidate and candidate.request.direction or self.direction)=="manga" then publication.forward=not publication.forward end
     if callback then
         -- These options have already rendered this allocation. The committed
         -- render_options below still belongs to the previous visible camera.
-        ok, accepted = pcall(callback, buffer, self.panels[index], index, #self.panels,
+        ok, accepted = pcall(callback, buffer, panels[index], index, #panels,
             publication)
     end
     if self.token ~= token then
@@ -118,6 +122,11 @@ function PanelSession:_publish(index, buffer,options)
     local previous = self.current_buffer
     self.current_buffer, self.index, self.active = buffer, index, true
     if options then self.render_options=options end
+    if candidate then
+        self.panels, self.synthetic = panels, candidate.synthetic
+        self.source_request, self.detector = candidate.request, candidate.detector
+        self.direction, self.layout_revision = candidate.request.direction, publication.layout_revision
+    end
     self.render_failures = 0
     release(previous, "free")
     self:_schedule_next()
@@ -212,40 +221,63 @@ end
 -- Host animations own their frames; reader call sites can safely settle instantly.
 function PanelSession:finish_transition() return true end
 
-function PanelSession:configure(values,commit,rollback)
+-- Candidate layout never mutates the visible session until publication accepts it.
+function PanelSession:configure(values,commit,rollback,detection)
     if self.rendering or self.configuring or self.pending or not self.active then return false,"panel_session_busy" end
     self.configuring=true
+    local token=self.token
     local function finish(value,reason) self.configuring=false;return value,reason end
     local options={}
     for k,v in pairs(self.render_options) do options[k]=v end
     for k,v in pairs(values or {}) do options[k]=v end
-    local old_panels,old_index,old_synthetic=self.panels,self.index,self.synthetic
-    if self.synthetic and options.view~="free" then
-        local ok,panels,reason=pcall(function()
-            local raster=self.handle:detection_raster()
-            return self.detector.detect(raster,self.source_request)
-        end)
-        if not ok or type(panels)~="table" or #panels==0 then return finish(false,reason or "no_panels") end
-        self.panels,self.index,self.synthetic=panels,1,nil
-    end
-    local function restore() self.panels,self.index,self.synthetic=old_panels,old_index,old_synthetic end
+    local candidate,index=nil,self.index
     self:release_next()
-    local buffer,reason=self:_render(self.index,options)
-    if not buffer then restore();return finish(false,reason) end
-    local token=self.token
+    if detection or (self.synthetic and options.view~="free") then
+        local request={}
+        for k,v in pairs(self.source_request)do request[k]=v end
+        for k,v in pairs(detection and detection.request or {})do request[k]=v end
+        request.view=options.view
+        local detector=detection and detection.detector or self.detector
+        local synthetic=options.view=="free"
+        local ok,panels,reason=pcall(function()
+            if synthetic then return {{id="free-page",x=0,y=0,w=1,h=1}} end
+            local raster,err=self.handle:detection_raster()
+            if not raster then return nil,err end
+            return detector.detect(raster,request)
+        end)
+        if self.token~=token then return finish(false,"panel_session_closed") end
+        if not ok or type(panels)~="table" or #panels==0 then
+            -- An explicit re-detection with no reliable layout shows the whole
+            -- page; leaving Free View unsuccessfully retains its visible camera.
+            if detection then self:_fallback(token,ok and reason or "panel_detection_failed") end
+            return finish(false,reason or "no_panels")
+        end
+        candidate={panels=panels,request=request,detector=detector,synthetic=synthetic}
+        index=1
+        options.zoom,options.pan_x,options.pan_y=1,0,0
+    end
+    local buffer,reason=self:_render(index,options,candidate and candidate.panels[index])
+    if not buffer then return finish(false,reason) end
     if commit then
         local ok,accepted=pcall(commit)
-        if not ok or accepted~=true then release(buffer,"free");restore();return finish(false,"panel_settings_failed") end
+        if not ok or accepted~=true then release(buffer,"free");return finish(false,"panel_settings_failed") end
     end
     if self.token~=token then
         release(buffer,"free")
         if rollback then pcall(rollback) end
         return finish(false,"panel_session_closed")
     end
-    local accepted=self:_publish(self.index,buffer,options)
-    if not accepted and self.token==token then restore() end
+    local accepted=self:_publish(index,buffer,options,candidate)
     if not accepted and rollback then pcall(rollback) end
     return finish(accepted)
+end
+
+function PanelSession:redetect(changes,commit,rollback,detector)
+    local render={}
+    for _,key in ipairs({"view","rotation","margin_percent","show_adjacent","protect_text","transition_mode"})do
+        if changes and changes[key]~=nil then render[key]=changes[key] end
+    end
+    return self:configure(render,commit,rollback,{request=changes,detector=detector or self.detector})
 end
 
 function PanelSession:pan(dx,dy)

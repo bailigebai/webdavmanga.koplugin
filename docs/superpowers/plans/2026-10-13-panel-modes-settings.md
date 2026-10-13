@@ -140,12 +140,12 @@ assert(Profile.threshold({[180]=4000},180,50) == 50, '均匀页保留手动基�
 
 **Interfaces:** `PanelSession:redetect(request_changes, commit, rollback)` 复用当前 handle 取得 raster，事务重建布局，从首格发布，成功返回 true；不再次调用 source.open。Reader 按 Modes.active 选择智能、Dynamic 或 Web，所有模式复用现有 PanelSession 工厂与手势/跨页路由。检测选项保存调用 redetect；显示选项继续调用 configure；模式变化安全解除旧借用后重建会话。
 
-- [ ] RED：切换三模式只存在一个会话，首格/末格跨物理页及章节行为保留；未识别页整页显示后下一页继续；Web 三视图和顺序/导航真正在读图时生效。
-- [ ] RED：连续参数修改使用当前本地原图，`source.open` 次数不增；保存失败、渲染失败、发布拒绝回滚旧参数及布局；预渲染迟到、关闭中调参、旋转中退出，缓冲恰好释放一次且显示器不借用已释放内存。
-- [ ] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_mode_reader_spec.lua spec/panel_redetection_spec.lua`，确认 RED。
-- [ ] GREEN：实现 redetect 的候选布局/设置/发布事务和 token 检查；整页回退通过既有 Reader detach 边界。增加 Web 菜单及识别四项恢复按钮；两种自动能力菜单返回正确父级。读取现有保存的本漫画配置，保持原物理页。
-- [ ] 验证新规格及 `panel_session_spec`、`panel_memory_spec`、`rebuild_0414_panel_continuation_spec`、`panel_settings_reload_spec`、三视图/原生动画/退出/手势和背景规格。
-- [ ] 提交：`feat: integrate panel modes with safe local redetection`。
+- [x] RED：切换三模式只存在一个会话，首格/末格跨物理页及章节行为保留；未识别页整页显示后下一页继续；Web 三视图和顺序/导航真正在读图时生效。
+- [x] RED：连续参数修改使用当前本地原图，`source.open` 次数不增；保存失败、渲染失败、发布拒绝回滚旧参数及布局；预渲染迟到、关闭中调参、旋转中退出，缓冲恰好释放一次且显示器不借用已释放内存。
+- [x] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_mode_reader_spec.lua spec/panel_redetection_spec.lua`，确认 RED。
+- [x] GREEN：实现 redetect 的候选布局/设置/发布事务和 token 检查；整页回退通过既有 Reader detach 边界。增加 Web 菜单及识别四项恢复按钮；两种自动能力菜单返回正确父级。读取现有保存的本漫画配置，保持原物理页。
+- [x] 验证新规格及 `panel_session_spec`、`panel_memory_spec`、`rebuild_0414_panel_continuation_spec`、`panel_settings_reload_spec`、三视图/原生动画/退出/手势和背景规格。
+- [x] 提交：`feat: integrate panel modes with safe local redetection`。
 
 ## Task 6：真实运行时验证、严格打包与交付
 

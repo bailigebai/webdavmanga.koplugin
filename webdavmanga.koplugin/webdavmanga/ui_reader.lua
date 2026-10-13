@@ -1654,7 +1654,7 @@ function Reader:onTwoFingerTap(source_shell, gesture)
         return self:toggle_controls(self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'panel_view')
     end
     if self.webtoon_session or not self:_quadrant_input_ready(source_shell) then return false end
-    if self.reader_settings.grid_zoom_enabled~=true and self.reader_settings.dynamic_panel_zoom_enabled~=true and self.reader_settings.panel_zoom_enabled==true and self.reader_settings.panel_entry_gesture~="hold"
+    if self.reader_settings.grid_zoom_enabled~=true and self.reader_settings.dynamic_panel_zoom_enabled~=true and Modes.enabled(self.reader_settings) and self.reader_settings.panel_entry_gesture~="hold"
         and self.reader_settings.panel_entry_gesture~=nil then return self:enter_panel_mode("first") end
     if self.reader_settings.grid_zoom_enabled == false then return false end
     if self.quadrant_hold then return true end
@@ -1960,6 +1960,34 @@ function Reader:_show_panel(buffer, _panel, index, count, render_options)
     return true
 end
 
+function Reader:_panel_detector_for(values)
+    local mode=Modes.active(values)
+    return mode=='web' and Web or mode=='dynamic' and Dynamic or self.panel_detector
+end
+
+function Reader:_panel_request(values,desired)
+    local request = {
+        generation = self.generation, image = self:_image(self.position.index),
+        engine = "default",
+        page_path = self.page_path, page_buffer = self.page_buffer,
+        direction = self:_panel_direction(values), desired = desired or "first",
+        view=values.panel_view or "context",rotation=values.panel_rotation or 0,
+        margin_percent = values.panel_standard_margin_percent,
+        show_adjacent = values.panel_show_adjacent ~= false,
+        experimental = values.panel_experimental_sort == true,
+        protect_text=values.panel_protect_text~=false,
+        detection_threshold=values.panel_detection_threshold,
+        auto_detection=values.panel_auto_detection_enabled==true,
+        background_detection=values.panel_background_detection,
+        transition_mode=self.shell.is_graydither_refresh_managed and self.shell:is_graydither_refresh_managed()
+            and "classic" or values.panel_transition_mode or "classic",
+    }
+    if values.dynamic_panel_zoom_enabled then Dynamic.request(values,request)
+    elseif values.web_panel_zoom_enabled then Web.request(values,request) end
+    return request
+
+end
+
 function Reader:enter_panel_mode(desired)
     if self.webtoon_session then
         return self.shell:show_status("请先将图片显示切换为整页，再使用智能分格。")
@@ -1986,7 +2014,7 @@ function Reader:enter_panel_mode(desired)
             pan_y = self.pan_y, current_segments = self.current_segments, serial = self.request_serial,
             viewport = self.page_viewport }
     end
-    self.panel_entry.mode=self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent'
+    self.panel_entry.mode=Modes.active(self.reader_settings)
     self.panel_entry.whole_page = nil
     self.current_segments, self.pan_y = { "whole" }, 0
     self.shell:show_status(self.reader_settings.dynamic_panel_zoom_enabled and '正在识别' or '正在识别分格',2)
@@ -1999,8 +2027,7 @@ function Reader:enter_panel_mode(desired)
         schedule = function(callback) return shell.scheduler:scheduleIn(0, callback) end
     end
     local ok, session = pcall(self.panel_session_factory, {
-        source = self.panel_source, detector = self.reader_settings.dynamic_panel_zoom_enabled
-            and Dynamic or self.panel_detector, schedule = schedule,
+        source = self.panel_source, detector = self:_panel_detector_for(self.reader_settings), schedule = schedule,
         screen_width = width, screen_height = height,
     })
     if not ok or not session then return self:_panel_fallback("panel_source_unavailable") end
@@ -2009,23 +2036,7 @@ function Reader:enter_panel_mode(desired)
     local function active()
         return self.panel_session == session and self:_active(serial, generation)
     end
-    local request = {
-        generation = generation, image = self:_image(self.position.index),
-        engine = "default",
-        page_path = self.page_path, page_buffer = self.page_buffer,
-        direction = self:_panel_direction(), desired = desired or "first",
-        view=self.reader_settings.panel_view or "context",rotation=self.reader_settings.panel_rotation or 0,
-        margin_percent = self.reader_settings.panel_standard_margin_percent,
-        show_adjacent = self.reader_settings.panel_show_adjacent ~= false,
-        experimental = self.reader_settings.panel_experimental_sort == true,
-        protect_text=self.reader_settings.panel_protect_text~=false,
-        detection_threshold=self.reader_settings.panel_detection_threshold,
-        auto_detection=self.reader_settings.panel_auto_detection_enabled==true,
-        background_detection=self.reader_settings.panel_background_detection,
-        transition_mode=shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed()
-            and "classic" or self.reader_settings.panel_transition_mode or "classic",
-    }
-    if self.reader_settings.dynamic_panel_zoom_enabled then Dynamic.request(self.reader_settings,request) end
+    local request = self:_panel_request(self.reader_settings,desired)
     local started = session:start(request, {
         on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count, render_options)
             if not active() then return false end
@@ -2171,7 +2182,8 @@ function Reader:_reading_token(segment, panel_index, camera)
         tostring(segment or position.segment), tostring(self.fit_mode), tostring(self.pan_y or 0),
         tostring(self.webtoon_fraction or 0), tostring(self.quadrant_zoom or "whole"),
         tostring(panel_index or 0), tostring(camera.view or ""), tostring(camera.rotation or 0),
-        tostring(camera.pan_x or 0), tostring(camera.pan_y or 0), tostring(camera.zoom or 1)}, ":")
+        tostring(camera.pan_x or 0), tostring(camera.pan_y or 0), tostring(camera.zoom or 1),
+        tostring(camera.layout_revision or (self.panel_session and self.panel_session.layout_revision) or 0)}, ":")
 end
 
 function Reader:show_graydither_settings()
@@ -2221,75 +2233,101 @@ function Reader:onSwipe(_, gesture)
     return true
 end
 
-function Reader:_panel_direction()
-    local order=self.reader_settings.dynamic_panel_zoom_enabled and self.reader_settings.dynamic_panel_order
-        or self.reader_settings.panel_order
-    return (order=="normal" or order=="manga") and order or self.direction
+function Reader:_panel_direction(values)
+    values=values or self.reader_settings
+    local order=values.dynamic_panel_zoom_enabled and values.dynamic_panel_order or values.panel_order
+    return (order=="normal" or order=="manga") and order or values.direction or self.direction
 end
 
 function Reader:set_panel_option(key,value,make_default)
+    return self:_set_panel_options({[key]=value},make_default,key)
+end
+
+function Reader:_set_panel_options(patch,make_default,changed)
+    if self.closing then return false end
+    local Options=require('webdavmanga.panel_options')
+    for _,schema in ipairs({Options.fields,Dynamic.fields,Web.fields})do
+        for _,field in ipairs(schema)do
+            if patch[field.key]~=nil and not Options.valid(field,patch[field.key])then return false end
+        end
+    end
     local previous=copy_table(self.reader_settings)
-    local values=copy_table(previous);values[key]=value
-    Modes.resolve(values,previous,key)
+    local values=copy_table(previous)
+    for key,value in pairs(patch)do values[key]=value end
+    Options.normalize(values);Dynamic.normalize(values);Web.normalize(values)
+    Modes.resolve(values,previous,changed)
     local session=self.panel_session
     if session and session.transition then return false end
     local target_mode=Modes.active(values)
-    local mode_key=key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled' or key=='web_panel_zoom_enabled'
-    local mode_changed=self.panel_entry and mode_key
-        and target_mode~=(self.panel_entry.mode or 'intelligent')
+    local mode_changed=self.panel_entry and target_mode~=self.panel_entry.mode
+    for _,field in pairs(Modes.keys)do
+        if patch[field]~=nil then
+            for _,mode_field in pairs(Modes.keys)do patch[mode_field]=values[mode_field]end
+            break
+        end
+    end
     local snapshot=self.settings.panel_snapshot and self.settings:panel_snapshot()
     local function commit()
+        local saved
         if self.panel_book_key and self.settings.set_panel_reader then
-            local patch={[key]=value}
-            if mode_key then
-                for _,field in pairs(Modes.keys) do patch[field]=values[field] end
-            end
-            return self.settings:set_panel_reader(self.panel_book_key,patch,make_default)==true
-        end
-        return self:_persist_reader(values)
+            saved=self.settings:set_panel_reader(self.panel_book_key,patch,make_default)==true
+        else saved=self:_persist_reader(values) end
+        if saved then self.reader_settings=values end
+        return saved
     end
     local function rollback()
         self.reader_settings=previous
         if snapshot and self.settings.restore_panel then self.settings:restore_panel(snapshot) end
     end
-    local camera_keys={panel_view="view",panel_rotation="rotation",
-        panel_standard_margin_percent="margin_percent",panel_show_adjacent="show_adjacent",
-        panel_protect_text="protect_text",panel_transition_mode="transition_mode"}
-    local camera_key=camera_keys[key]
-    if values.dynamic_panel_zoom_enabled then
-        camera_key=key=='dynamic_panel_margin_percent' and 'margin_percent' or nil
+    local recognition={panel_detection_threshold=true,panel_auto_detection_enabled=true,
+        panel_background_detection=true,panel_experimental_sort=true,
+        dynamic_panel_detection_threshold=true,dynamic_panel_min_side_percent=true,
+        dynamic_panel_auto_detection_enabled=true,web_panel_strength_percent=true,
+        web_panel_min_area_permille=true,web_panel_frame_min=true,web_panel_dialogue_distance_percent=true}
+    local redetect=mode_changed and target_mode~=nil
+    for key in pairs(patch)do if recognition[key]then redetect=true end end
+    local cameras={panel_view='view',panel_rotation='rotation',panel_standard_margin_percent='margin_percent',
+        panel_show_adjacent='show_adjacent',panel_protect_text='protect_text',panel_transition_mode='transition_mode'}
+    local camera={}
+    for key,value in pairs(patch)do
+        local field=target_mode=='dynamic' and (key=='dynamic_panel_margin_percent' and 'margin_percent' or nil)
+            or (target_mode~='dynamic' and cameras[key] or nil)
+        if field then camera[field]=value end
     end
+    if camera.view then camera.zoom,camera.pan_x,camera.pan_y=1,0,0 end
     local saved
-    if session and session:is_active() and camera_key then
-        local options={[camera_key]=value}
-        if key=="panel_view" then options.zoom,options.pan_x,options.pan_y=1,0,0 end
-        saved=session:configure(options,commit,rollback)
+    if session and session:is_active() and redetect then
+        saved=session:redetect(self:_panel_request(values,'first'),commit,rollback,self:_panel_detector_for(values))
+    elseif session and session:is_active() and next(camera)then
+        saved=session:configure(camera,commit,rollback)
     else saved=commit() end
-    if saved and mode_changed then
+    if saved and mode_changed and not target_mode then
         saved=self:exit_panel_mode()
-        if saved then session=nil else rollback() end
+        if not saved then rollback() end
     end
     if not saved then
-        local message="分格设置未能应用，已保留原画面与位置。"
+        local message='分格设置未能应用，已保留原设置；未可靠识别的页面显示整页。'
         if self.ui and self.ui.show_info then self.ui:show_info(message)
         else self.shell:show_status(message,2) end
         return false
     end
-    self.reader_settings=values
+    if self.panel_entry then self.panel_entry.mode=target_mode end
+    session=self.panel_session
     if not session and self.panel_entry and self.panel_entry.whole_page
-        and key=="panel_view" and value=="free" then return self:enter_panel_mode("first") end
-    if session and session:is_active() and (key=="panel_detection_threshold"
-        or key=="panel_background_detection" or key=="panel_experimental_sort") then
-        if not self:_display_segment("whole",false) then rollback();return false end
-        self.panel_session=nil;session:close()
-        return self:enter_panel_mode("first")
+        and (redetect or patch.panel_view=='free')then return self:enter_panel_mode('first') end
+    if session and session:is_active() and not redetect then
+        local direction=self:_panel_direction()
+        if direction~=session.direction then
+            local current=session:set_direction(direction)
+            if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
+        end
     end
-    if session and session:is_active() then
-        local current=session:set_direction(self:_panel_direction())
-        if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
-    end
-    if not Modes.enabled(values) then self:exit_panel_mode() end
     return true
+end
+
+function Reader:restore_web_detection(make_default)
+    local defaults=Web.restore_detection({})
+    return self:_set_panel_options(defaults,make_default)
 end
 
 function Reader:_restore_grid_option(previous, snapshot, zoom, hold)
@@ -2543,10 +2581,10 @@ function Reader:reload_settings(values)
     if self.panel_book_key and self.settings.get_panel_overrides then
         for k,v in pairs(self.settings:get_panel_overrides(self.panel_book_key)) do next_values[k]=v end
     end
-    Dynamic.normalize(next_values)
+    Dynamic.normalize(next_values);Web.normalize(next_values);Modes.resolve(next_values,previous)
     if not self:_prepare_fit_mode(next_values.fit_mode) then return false end
     if self.panel_entry and (not Modes.enabled(next_values)
-        or (next_values.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent')~=(self.panel_entry.mode or 'intelligent')
+        or Modes.active(next_values)~=(self.panel_entry.mode or 'intelligent')
         or next_values.image_engine == "memory") then
         if not self:exit_panel_mode() then return false end
     end
@@ -2855,6 +2893,33 @@ function Reader:toggle_controls(section)
         actions[#actions+1]=action('宽图拆分设置','grid split settings',function() return show_section('split') end)
         actions[#actions+1]=action('继续阅读','resume grid page',show_current_page)
         actions[#actions+1]=action('← 返回上一级','grid settings back',function() return show_section('root') end)
+    elseif section=='web' then
+        title='Web 分格 · 本书 / 长按默认'
+        actions={}
+        local Options=require('webdavmanga.panel_options')
+        for _,field in ipairs(Web.fields)do
+            local f=field
+            local function apply(default)
+                if f.minimum then return self:show_panel_number_input(f,default) end
+                local index=(Options.index(f,self.reader_settings[f.key]) or 1)%#f.choices+1
+                return persist_and_reopen('web',function()return self:set_panel_option(f.key,f.choices[index],default)end)
+            end
+            local item=action(f.title..'：'..Options.label(f,self.reader_settings[f.key] or f.default),
+                'web '..f.key,function()return apply(false)end)
+            item.hold_callback=self:_callback('web default '..f.key,function()return apply(true)end,false)
+            actions[#actions+1]=item
+        end
+        local restore=action('恢复 Web 识别四项默认值','restore web recognition',function()
+            return persist_and_reopen('web',function()return self:restore_web_detection(false)end)
+        end)
+        restore.hold_callback=self:_callback('restore web defaults',function()
+            return persist_and_reopen('web',function()return self:restore_web_detection(true)end)
+        end,false)
+        actions[#actions+1]=restore
+        actions[#actions+1]=action('分格视图、旋转与方向','web camera',function()return show_section('panel_view')end)
+        actions[#actions+1]=action('更多分格设置','web navigation',function()return show_section('panel_advanced')end)
+        actions[#actions+1]=action('继续阅读','resume web',show_current_page)
+        actions[#actions+1]=action('← 返回上一级','web back',function()return show_section('root')end)
     elseif section=='dynamic' or section=='dynamic_advanced' then
         title=section=='dynamic_advanced' and '高级动态面板识别' or '动态面板变焦 · 本书 / 长按默认'
         actions={}
@@ -2918,7 +2983,7 @@ function Reader:toggle_controls(section)
                 "panel_order",self:_panel_direction()=="manga" and "normal" or "manga"),
             action("退出分格 → 整页","exit panel view",function() return self:exit_panel_mode() end),
             action("继续看当前格","resume panel view",show_current_page),
-            action("← 返回上一级","return to panel settings",function() return show_section("panel") end),
+            action("← 返回上一级","return to panel settings",function() return show_section(Modes.active(self.reader_settings)=="web" and "web" or "panel") end),
         }
     elseif section=="panel_advanced" then
         title="更多分格设置 · 本书 / 长按默认"
@@ -2926,7 +2991,7 @@ function Reader:toggle_controls(section)
             action("分格翻页动画","panel motion settings",function() return show_section("panel_motion") end),
             action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
             action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
-            action("← 返回上一级","return to panel settings",function() return show_section("panel") end),
+            action("← 返回上一级","return to panel settings",function() return show_section(Modes.active(self.reader_settings)=="web" and "web" or "panel") end),
         }
     elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
         local Options=require("webdavmanga.panel_options")
@@ -3293,6 +3358,7 @@ function Reader:toggle_controls(section)
             end),
             action('设备旋转','open device rotation',function()return show_section('device_rotation')end),
             action('动态面板变焦','open native dynamic panels',function() return show_section('dynamic') end),
+            action('Web 分格','open web panels',function()return show_section('web')end),
             action('网格象限缩放','open independent quadrant grid',function() return show_section('grid') end),
             action("漫画去灰增强", "open gray enhancement settings", function()
                 return show_section("gray")
