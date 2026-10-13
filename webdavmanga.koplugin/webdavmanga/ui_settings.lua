@@ -308,7 +308,17 @@ local function default_ui()
                 end
             end
         end
+        local dismiss = model.on_dismiss
+        model.on_dismiss = nil
         dialog = class:new(model)
+        if dismiss then
+            -- System Back and outside taps use the same owned return as the
+            -- explicit button. Teardown clears ownership before native close.
+            dialog.onClose = function()
+                if not registry.widgets[dialog] then return true end
+                return dismiss()
+            end
+        end
         return dialog
     end
     local function owned_class(class)
@@ -1168,9 +1178,16 @@ local function default_ui()
 
         sections[#sections+1]={key='device_rotation',title='设备旋转',summary='0° / 90° / 180° / 270°',
             action=model.on_open_device_rotation}
-        local function after_close(widget, callback)
+        local function after_close(widget, callback, restore)
             if not close(widget) then return false end
-            return defer_current(dialog_epoch, "reader settings transition", callback)
+            return defer_current(dialog_epoch, "reader settings transition", function()
+                local ok, result = pcall(callback)
+                if not ok or result == false then
+                    if restore and adapter.dialog_epoch == dialog_epoch then restore() end
+                    return false
+                end
+                return result
+            end)
         end
 
         local function current_text(field)
@@ -1211,7 +1228,7 @@ local function default_ui()
                         text = current.text,
                         callback = guarded("save " .. field.key, function()
                             if not persist(field, current.value) then return false end
-                            return after_close(dialog, function() show_section(section) end)
+                            return after_close(dialog, function() show_section(section) end, function() show_field(section, field) end)
                         end),
                     }
                     if #row == 2 then buttons[#buttons + 1] = row; row = {} end
@@ -1219,7 +1236,7 @@ local function default_ui()
                 local cancel = {
                     text = "← 返回上一级",
                     callback = guarded("cancel " .. field.key, function()
-                        return after_close(dialog, function() show_section(section) end)
+                        return after_close(dialog, function() show_section(section) end, function() show_field(section, field) end)
                     end),
                 }
                 if #row == 1 then
@@ -1231,7 +1248,7 @@ local function default_ui()
                 dialog = ButtonDialog:new{
                     title = field.title,
                     width_factor = 0.92,
-                    buttons = buttons,
+                    buttons = buttons, on_dismiss = cancel.callback,
                 }
                 registry:show(dialog)
                 return true
@@ -1253,13 +1270,13 @@ local function default_ui()
                 buttons = {{
                     { text = "← 返回上一级", id = "close", callback = guarded(
                         "cancel " .. field.key, function()
-                            return after_close(dialog, function() show_section(section) end)
+                            return after_close(dialog, function() show_section(section) end, function() show_field(section, field) end)
                         end) },
                     { text = "保存", callback = guarded(
                         "save " .. field.key, function()
                             local input = dialog:getFields()
                             if not persist(field, input and input[1]) then return false end
-                            return after_close(dialog, function() show_section(section) end)
+                            return after_close(dialog, function() show_section(section) end, function() show_field(section, field) end)
                         end) },
                 }},
             }, function() return dialog end))
@@ -1277,7 +1294,7 @@ local function default_ui()
                 row[#row + 1] = {
                     text = field.title .. "\n当前：" .. current_text(field),
                     callback = guarded("open " .. field.key, function()
-                        return after_close(dialog, function() show_field(section, field) end)
+                        return after_close(dialog, function() show_field(section, field) end, function() show_section(section) end)
                     end),
                 }
                 if #row == 2 then buttons[#buttons + 1] = row; row = {} end
@@ -1285,7 +1302,7 @@ local function default_ui()
             local back = {
                 text = "← 返回上一级",
                 callback = guarded("back from " .. section.key, function()
-                    return after_close(dialog, show_root)
+                    return after_close(dialog, show_root, function() show_section(section) end)
                 end),
             }
             if #row == 1 then
@@ -1297,7 +1314,7 @@ local function default_ui()
             dialog = ButtonDialog:new{
                 title = section.title,
                 width_factor = 0.94,
-                buttons = buttons,
+                buttons = buttons, on_dismiss = back.callback,
             }
             registry:show(dialog)
         end
@@ -1309,7 +1326,7 @@ local function default_ui()
                 row[#row + 1] = {
                     text = current.title .. "\n" .. current.summary,
                     callback = guarded("open " .. current.key .. " settings", function()
-                        return after_close(root_dialog, function() show_section(current) end)
+                        return after_close(root_dialog, function() show_section(current) end, show_root)
                     end),
                 }
                 if #row == 2 then buttons[#buttons + 1] = row; row = {} end
@@ -1331,7 +1348,7 @@ local function default_ui()
                 destinations[#destinations + 1] = {
                     text = "阅读历史",
                     callback = guarded("open history from settings", function()
-                        return after_close(root_dialog, model.on_open_history)
+                        return after_close(root_dialog, model.on_open_history, show_root)
                     end),
                 }
             end
@@ -1339,7 +1356,7 @@ local function default_ui()
                 destinations[#destinations + 1] = {
                     text = "漫画分类架",
                     callback = guarded("open category shelf from settings", function()
-                        return after_close(root_dialog, model.on_open_category_shelf)
+                        return after_close(root_dialog, model.on_open_category_shelf, show_root)
                     end),
                 }
             end
@@ -1353,7 +1370,7 @@ local function default_ui()
             root_dialog = ButtonDialog:new{
                 title = "漫画阅读设置",
                 width_factor = 0.94,
-                buttons = buttons,
+                buttons = buttons, on_dismiss = finish.callback,
             }
             registry:show(root_dialog)
         end
@@ -1380,7 +1397,8 @@ local function default_ui()
             if registry:close(dialog)==false then return false end
             return model.on_return()
         end)}}
-        dialog=ButtonDialog:new{title='设备旋转',buttons=buttons,width_factor=.92}
+        dialog=ButtonDialog:new{title='设备旋转',buttons=buttons,width_factor=.92,
+            on_dismiss=buttons[#buttons][1].callback}
         registry:show(dialog)
         return true
     end
@@ -1464,7 +1482,8 @@ local function default_ui()
                 return close_then(model.on_return)
             end),
         }}
-        dialog = ButtonDialog:new{ title = "漫画去灰增强", width_factor = 0.94, buttons = buttons }
+        dialog = ButtonDialog:new{ title = "漫画去灰增强", width_factor = 0.94, buttons = buttons,
+            on_dismiss = buttons[#buttons][1].callback }
         registry:show(dialog)
         return true
     end
@@ -1592,6 +1611,7 @@ local function default_ui()
         }}
         dialog = ButtonDialog:new{
             title = "亮度与对比度", width_factor = 0.94, buttons = buttons,
+            on_dismiss = buttons[#buttons][1].callback,
         }
         registry:show(dialog)
         return true

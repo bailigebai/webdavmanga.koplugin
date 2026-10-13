@@ -103,7 +103,16 @@ local function settings_setup()
         end}
     end
     for _,name in ipairs({'buttondialog','multiinputdialog','infomessage','confirmbox','textviewer'}) do
-        package.loaded['ui/widget/'..name]=dialog_class()
+        local class=dialog_class()
+        if name=='buttondialog' then
+            local frontend=assert(os.getenv('KOREADER_FRONTEND'))
+            local f=assert(io.open(frontend..'/ui/widget/buttondialog.lua','rb'));local source=f:read('*a');f:close()
+            local method=assert(source:match('(function ButtonDialog:onClose%(%)\n.-)\nfunction ButtonDialog:onTapClose'))
+            local on_close=assert(loadstring('local UIManager=...;local ButtonDialog={};'..method..';return ButtonDialog.onClose'))(manager)
+            local new=class.new
+            class.new=function(self,model)local dialog=new(self,model);dialog.onClose=on_close;return dialog end
+        end
+        package.loaded['ui/widget/'..name]=class
     end
     local Settings=require('webdavmanga.settings')
     local UiSettings=require('webdavmanga.ui_settings')
@@ -212,6 +221,43 @@ test('reader external settings hide controls and return to live section',functio
     press(windows[1],'← 返回上一级')
     expect(#windows==0 and shell.current_model.kind=='controls' and shell.current_model.section=='gray',
         'external return rebuilds direct reader parent')
+end)
+for _,kind in ipairs({'gray','tone'})do
+    test(kind..' native dismiss returns to caller once',function()
+        local _,_,controller,windows=settings_setup();local returned=0
+        local open=controller['show_'..kind..'_settings']
+        open(controller,function()returned=returned+1 end);local dialog=windows[1]
+        dialog:onClose();expect(returned==1 and #windows==0,'native dismiss must invoke direct return')
+        dialog:onClose();expect(returned==1,'stale native dismiss must not return twice')
+    end)
+end
+test('global native section dismiss returns to root',function()
+    local _,_,controller,windows=settings_setup();controller:show_reader();local root=windows[1]
+    root.buttons[1][1].callback();local child=windows[1]
+    child:onClose();expect(#windows==1 and windows[1].title==root.title,'native section close restores root')
+end)
+test('failed native child construction restores parent',function()
+    local _,_,controller,windows=settings_setup();controller:show_reader();local root=windows[1]
+    local class=package.loaded['ui/widget/buttondialog'];local new=class.new;local reject=true
+    class.new=function(self,model)if reject then reject=false;error('injected child construction failure')end;return new(self,model)end
+    root.buttons[1][1].callback()
+    expect(#windows==1 and windows[1].title==root.title,'child failure must restore live parent')
+    windows[1].buttons[1][1].callback();expect(#windows==1 and windows[1].title~=root.title,'restored parent remains operable')
+end)
+test('shared panel menu returns to actual caller irrespective of enabled mode',function()
+    local reader=fixture(false)
+    for _,origin in ipairs({'web','panel'})do
+        for _,child in ipairs({'panel_view','panel_advanced'})do
+            reader:toggle_controls(origin)
+            local action
+            for _,item in ipairs(reader.shell.current_model.actions)do
+                if (child=='panel_view' and item.text=='分格视图、旋转与方向')or(child=='panel_advanced' and item.text=='更多分格设置')then action=item end
+            end
+            expect(action and action.callback(),'open shared menu')
+            for _,item in ipairs(reader.shell.current_model.actions)do if item.text=='← 返回上一级'then item.callback();break end end
+            expect(reader.shell.current_model.section==origin,'return to origin '..origin)
+        end
+    end
 end)
 assert(#failures==0,table.concat(failures,'\n'))
 print(('settings_hierarchy_spec: %d checks'):format(checks))

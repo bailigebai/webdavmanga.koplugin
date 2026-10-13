@@ -1988,15 +1988,16 @@ function Reader:_panel_request(values,desired)
 
 end
 
-function Reader:enter_panel_mode(desired)
+function Reader:enter_panel_mode(desired, transaction)
+    local values=transaction and transaction.values or self.reader_settings
     if self.webtoon_session then
         return self.shell:show_status("请先将图片显示切换为整页，再使用智能分格。")
     end
     if self.closing or not self.page_buffer or not self.position or self.pending_request
-        or self.panel_restore or not Modes.enabled(self.reader_settings)
+        or self.panel_restore or not Modes.enabled(values)
         or not self.panel_source or not self.panel_detector then return false end
-    if self.reader_settings.image_engine == "memory" then
-        self.shell:show_status((self.reader_settings.dynamic_panel_zoom_enabled
+    if values.image_engine == "memory" then
+        self.shell:show_status((values.dynamic_panel_zoom_enabled
             and dynamic_failure_messages or panel_failure_messages).panel_engine_unsupported)
         return false
     end
@@ -2009,15 +2010,17 @@ function Reader:enter_panel_mode(desired)
             return false
         end
     end
+    local previous_entry,previous_segments,previous_pan=self.panel_entry,self.current_segments,self.pan_y
+    if transaction and self.panel_entry then self.panel_entry=copy_table(self.panel_entry) end
     if not self.panel_entry then
         self.panel_entry = { index = self.position.index, segment = self.position.segment,
             pan_y = self.pan_y, current_segments = self.current_segments, serial = self.request_serial,
             viewport = self.page_viewport }
     end
-    self.panel_entry.mode=Modes.active(self.reader_settings)
+    self.panel_entry.mode=Modes.active(values)
     self.panel_entry.whole_page = nil
     self.current_segments, self.pan_y = { "whole" }, 0
-    self.shell:show_status(self.reader_settings.dynamic_panel_zoom_enabled and '正在识别' or '正在识别分格',2)
+    self.shell:show_status(values.dynamic_panel_zoom_enabled and '正在识别' or '正在识别分格',2)
     local width, height = self.shell:get_content_size()
     local shell = self.shell
     local schedule
@@ -2026,33 +2029,61 @@ function Reader:enter_panel_mode(desired)
     elseif shell.scheduler and type(shell.scheduler.scheduleIn) == "function" then
         schedule = function(callback) return shell.scheduler:scheduleIn(0, callback) end
     end
-    local ok, session = pcall(self.panel_session_factory, {
-        source = self.panel_source, detector = self:_panel_detector_for(self.reader_settings), schedule = schedule,
+    local session
+    local function failed_initial(reason)
+        if not transaction or transaction.published then return self:_panel_fallback(reason) end
+        transaction.failed=true
+        pcall(transaction.rollback)
+        if self.closing then return false end
+        self.panel_entry,self.current_segments,self.pan_y=previous_entry,previous_segments,previous_pan
+        -- Restore the borrowed original before closing a rejected allocation.
+        if not self:_display_segment(self.position.segment or "whole",false) then return false end
+        self.panel_session=nil
+        if session then session:close() end
+        self.shell:show_status('分格设置未能应用，已保留原设置与整页续读。',2)
+        return false
+    end
+    local ok
+    ok, session = pcall(self.panel_session_factory, {
+        source = self.panel_source, detector = self:_panel_detector_for(values), schedule = schedule,
         screen_width = width, screen_height = height,
     })
-    if not ok or not session then return self:_panel_fallback("panel_source_unavailable") end
+    if not ok or not session then
+        session=nil
+        return failed_initial("panel_source_unavailable")
+    end
     self.panel_session = session
     local serial, generation = self.request_serial, self.generation
     local function active()
         return self.panel_session == session and self:_active(serial, generation)
     end
-    local request = self:_panel_request(self.reader_settings,desired)
+    local request = self:_panel_request(values,desired)
     local started = session:start(request, {
         on_panel = self:_callback("show dynamic panel", function(buffer, panel, index, count, render_options)
             if not active() then return false end
-            return self:_show_panel(buffer, panel, index, count, render_options)
+            if transaction and not transaction.published then
+                if transaction.commit()~=true then return false end
+                if not active() then transaction.rollback();return false end
+            end
+            local accepted=self:_show_panel(buffer, panel, index, count, render_options)
+            if not active() then
+                if transaction and not transaction.published then transaction.rollback() end
+                return false
+            end
+            if transaction and accepted~=false then transaction.published=true end
+            return accepted
         end, false),
         on_boundary = self:_callback("cross dynamic panel page", function(delta)
             if not active() then return false end
             return self:_request_panel_page(delta)
         end, false),
         on_fallback = self:_callback("fallback dynamic panel", function(reason)
-            if active() then return self:_panel_fallback(reason) end
+            if active() then return failed_initial(reason) end
         end, false),
     })
     self.panel_cross_page=nil
-    if started == false and self.panel_session == session then self:_panel_fallback() end
-    return true
+    if started == false and self.panel_session == session then failed_initial("panel_source_unavailable") end
+    return started~=false and not (transaction and transaction.failed)
 end
 
 function Reader:_request_panel_page(delta)
@@ -2163,6 +2194,7 @@ function Reader:onRightTopDoubleTap()
 end
 
 function Reader:close_controls()
+    self.panel_settings_parent=nil
     if self.closing or not self.position then return false end
     if self.panel_session then
         if self.panel_session.finish_transition and not self.panel_session:finish_transition() then return false end
@@ -2257,7 +2289,9 @@ function Reader:_set_panel_options(patch,make_default,changed)
     Options.normalize(values);Dynamic.normalize(values);Web.normalize(values)
     Modes.resolve(values,previous,changed)
     local session=self.panel_session
-    if session and session.transition then return false end
+    -- Settings must never close/reconfigure a source on its native render stack.
+    if session and (session.transition or session.rendering or session.configuring
+        or session.pending or not session:is_active()) then return false end
     local target_mode=Modes.active(values)
     local mode_changed=self.panel_entry and target_mode~=self.panel_entry.mode
     for _,field in pairs(Modes.keys)do
@@ -2295,6 +2329,10 @@ function Reader:_set_panel_options(patch,make_default,changed)
         if field then camera[field]=value end
     end
     if camera.view then camera.zoom,camera.pan_x,camera.pan_y=1,0,0 end
+    if not session and self.panel_entry and self.panel_entry.whole_page and target_mode
+        and (redetect or patch.panel_view=='free') then
+        return self:enter_panel_mode('first',{values=values,commit=commit,rollback=rollback})
+    end
     local saved
     if session and session:is_active() and redetect then
         saved=session:redetect(self:_panel_request(values,'first'),commit,rollback,self:_panel_detector_for(values))
@@ -2313,8 +2351,6 @@ function Reader:_set_panel_options(patch,make_default,changed)
     end
     if self.panel_entry then self.panel_entry.mode=target_mode end
     session=self.panel_session
-    if not session and self.panel_entry and self.panel_entry.whole_page
-        and (redetect or patch.panel_view=='free')then return self:enter_panel_mode('first') end
     if session and session:is_active() and not redetect then
         local direction=self:_panel_direction()
         if direction~=session.direction then
@@ -2835,6 +2871,11 @@ function Reader:toggle_controls(section)
     if self.panel_session and self.panel_session.finish_transition
         and not self.panel_session:finish_transition() then return false end
     section = section or "root"
+    if section=="web" or section=="panel" then
+        self.panel_settings_parent=section
+    elseif section=="root" then
+        self.panel_settings_parent=nil
+    end
     local function show_section(name)
         return self:toggle_controls(name)
     end
@@ -2983,7 +3024,7 @@ function Reader:toggle_controls(section)
                 "panel_order",self:_panel_direction()=="manga" and "normal" or "manga"),
             action("退出分格 → 整页","exit panel view",function() return self:exit_panel_mode() end),
             action("继续看当前格","resume panel view",show_current_page),
-            action("← 返回上一级","return to panel settings",function() return show_section(Modes.active(self.reader_settings)=="web" and "web" or "panel") end),
+            action("← 返回上一级","return to panel settings",function() return show_section(self.panel_settings_parent or (Modes.active(self.reader_settings)=="web" and "web" or "panel")) end),
         }
     elseif section=="panel_advanced" then
         title="更多分格设置 · 本书 / 长按默认"
@@ -2991,7 +3032,7 @@ function Reader:toggle_controls(section)
             action("分格翻页动画","panel motion settings",function() return show_section("panel_motion") end),
             action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
             action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
-            action("← 返回上一级","return to panel settings",function() return show_section(Modes.active(self.reader_settings)=="web" and "web" or "panel") end),
+            action("← 返回上一级","return to panel settings",function() return show_section(self.panel_settings_parent or (Modes.active(self.reader_settings)=="web" and "web" or "panel")) end),
         }
     elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
         local Options=require("webdavmanga.panel_options")
