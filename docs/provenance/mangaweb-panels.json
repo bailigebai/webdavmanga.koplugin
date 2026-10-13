@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/bailigebai/mangaweb.koplugin",
+  "version": "0.8.91",
+  "commit": "f9e8364efbeccdcebc3bfd9498c93b4d1bbb2673",
+  "prerelease": true,
+  "files": [
+    {
+      "source": "mangaweb/panel_analysis.lua",
+      "sha256": "529c63652a4f3530d7e0983ea78701ab142e56e343e8740503ba74d0abfe0269",
+      "target": "webdavmanga/web_panel_analysis.lua",
+      "fixture": "spec/fixtures/mangaweb-v0.8.91/panel_analysis.lua"
+    },
+    {
+      "source": "mangaweb/panel_components.lua",
+      "sha256": "970b2ecbb1c0b220cc0670f529dbf4b0ccaeecd7bfb5f3a9a94437e694991810",
+      "target": "webdavmanga/web_panel_components.lua",
+      "fixture": "spec/fixtures/mangaweb-v0.8.91/panel_components.lua"
+    }
+  ],
+  "adaptations": [
+    "Only internal module namespace replacements in analysis/components",
+    "Reuse byte-identical panel_arrays and panel_geometry",
+    "Separate Web tuning schema and shared existing view/session"
+  ],
+  "upstream_notices": "MangaWeb uses KOReader public interfaces. The full-screen reader input and close model derives from WebDAVManga ui_reader_shell.lua. The standalone panel core was initially copied from WebDAVManga v0.4.21 (567002ce1d53e45f35020c849125fe7ef0fd2f20) with its internal module namespace changed. MangaWeb subsequently added independent recognition tuning and safe redetection; the original WebDAVManga plugin is not modified. Initial copy hashes and later adaptations are recorded in docs/provenance/webdav-panels.json. Site content and image copyrights belong to their respective owners.\n\nPanel component detection and geometry contain adapted code from PanelsPlus,\nrevision 14c53e9daec5a34e627dddb3bd52483ddb787bad:\nhttps://github.com/KristanLaimon/PanelsPlus\nChanges: bounded host/native arrays, fitted ordering frames separated from\nprotected display bounds, deterministic ties, plugin-owned coverage checks.\nThe MIT License for these portions follows:\n\nMIT License\n\nCopyright (c) 2026 KristanLaimon\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n"
+}

@@ -8,6 +8,8 @@ local SafeCallback = require("webdavmanga.safe_callback")
 local UiRegistry = require("webdavmanga.ui_registry")
 local ReaderHelp = require("webdavmanga.reader_help")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
+local Modes=require('webdavmanga.panel_modes')
+local Web=require('webdavmanga.web_panel_zoom')
 local Quadrant = require('webdavmanga.quadrant_zoom')
 
 local UiSettings = {}
@@ -242,9 +244,12 @@ local function normalize_reader(values, current)
         if result[f.key]==nil then result[f.key]=current[f.key] end
         if f.minimum then result[f.key]=tonumber(result[f.key]) end
     end
-    for _,f in ipairs(Dynamic.fields) do
-        result[f.key]=values[f.key]
-        if result[f.key]==nil then result[f.key]=current[f.key] end
+    for _,schema in ipairs({Dynamic.fields,Web.fields}) do
+        for _,f in ipairs(schema) do
+            result[f.key]=values[f.key]
+            if result[f.key]==nil then result[f.key]=current[f.key] end
+            if f.minimum then result[f.key]=tonumber(result[f.key]) end
+        end
     end
     for _,f in ipairs(Quadrant.fields) do
         result[f.key]=values[f.key]
@@ -1102,6 +1107,7 @@ local function default_ui()
                 items=require("webdavmanga.panel_options").items()},
             {key='dynamic',title='动态面板变焦默认值',summary='原生检测、聚焦与长按周边原图；与智能分格互斥',
                 items=Dynamic.items()},
+            {key='web',title='Web 分格默认值',summary='MangaWeb 识别；三种分格互斥',items=Web.items()},
             {key='grid',title='网格象限缩放默认值',summary='只用双指轻触进入；缩放期间 RTL 与辅助线',
                 items=Quadrant.items()},
             {
@@ -1182,7 +1188,7 @@ local function default_ui()
         local function persist(field, value)
             local merged = copy_table(model.values)
             merged[field.key] = value
-            Dynamic.resolve(merged,model.values,field.key)
+            Modes.resolve(merged,model.values,field.key)
             if model.on_save(merged) then
                 model.values = merged
                 return true

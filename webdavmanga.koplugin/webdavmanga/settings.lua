@@ -4,6 +4,8 @@ local ToneAdjust = require("webdavmanga.tone_adjust")
 
 local PanelOptions = require("webdavmanga.panel_options")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
+local Modes=require('webdavmanga.panel_modes')
+local Web=require('webdavmanga.web_panel_zoom')
 local Quadrant = require('webdavmanga.quadrant_zoom')
 
 local AutoCrop = require("webdavmanga.auto_crop")
@@ -693,6 +695,8 @@ function Settings:get_reader()
         reader.tone_adjust_sample_path) or ""
     reader.panel_zoom_enabled = reader.panel_zoom_enabled == true
     Dynamic.normalize(reader)
+    Web.normalize(reader)
+    Modes.resolve(reader)
     Quadrant.normalize(reader)
     AutoCrop.normalize_enhance(reader)
     reader.bubble_zoom_enabled = reader.bubble_zoom_enabled == true
@@ -723,10 +727,14 @@ function Settings:set_reader(values)
         or values.prefetch_far_count ~= nil
     local previous = self:get_reader()
     local reader = with_defaults(previous, values)
+    for _,key in pairs(Modes.keys) do
+        if type(reader[key])~='boolean' then return nil,'invalid_panel_profile' end
+    end
     if not Quadrant.validate(reader) then return nil, 'invalid_grid_zoom_settings' end
     if not AutoCrop.validate_enhance(reader) then return nil, 'invalid_auto_crop_enhance_settings' end
     if not Dynamic.validate(reader) then return nil, 'invalid_dynamic_panel_settings' end
-    Dynamic.resolve(reader, previous)
+    if not Web.validate(reader) then return nil, 'invalid_web_panel_settings' end
+    Modes.resolve(reader, previous)
     if type(reader.graydither_enabled) ~= "boolean"
         or type(reader.graydither_refresh_enabled) ~= "boolean" then
         return nil, "invalid_graydither_settings"
@@ -1202,7 +1210,11 @@ local PANEL_NUMBERS={}
 for _,f in ipairs(PanelOptions.fields) do
     if f.minimum then PANEL_NUMBERS[f.key]=f else PANEL_CHOICES[f.key]=f.choices end
 end
-for _,f in ipairs(Dynamic.fields) do PANEL_CHOICES[f.key]=f.choices end
+for _,schema in ipairs({Dynamic.fields,Web.fields}) do
+    for _,f in ipairs(schema) do
+        if f.minimum then PANEL_NUMBERS[f.key]=f else PANEL_CHOICES[f.key]=f.choices end
+    end
+end
 for _,f in ipairs(Quadrant.fields) do PANEL_CHOICES[f.key]={false,true} end
 local function book_key(key)
     return type(key)=="string" and #key==32 and key:match("^%x+$") and key:lower()
@@ -1215,13 +1227,15 @@ local function panel_values(values,strict)
         elseif PANEL_CHOICES[k] and one_of(v,PANEL_CHOICES[k]) then result[k]=v
         elseif strict then return nil end
     end
-    return Dynamic.override(result)
+    return Modes.override(result)
 end
 function Settings:panel_values(values) return panel_values(values,false) end
 function Settings:get_panel_reader(key)
     local reader=self:get_reader()
     for k,v in pairs(self:get_panel_overrides(key)) do reader[k]=v end
-    return Dynamic.normalize(reader)
+    Dynamic.normalize(reader)
+    Web.normalize(reader)
+    return Modes.resolve(reader)
 end
 function Settings:get_panel_overrides(key)
     key=book_key(key)

@@ -92,8 +92,8 @@ assert(reader.save_panel_screenshot == nil and shell.save_panel_screenshot == ni
 
 `Web.fields/normalize/validate/items/request/detect/sort` 对应现有 Dynamic 接口；Web request 转换为来源的 `strength_percent/min_area_permille/frame_min/dialogue_distance_percent`。来源 analysis/components 只替换命名空间及明确的数组/几何引用。动态新增阈值整数 1～254 默认 50、最小边百分比数值 2～50 默认 12.5；schema 数值项提供 `integer` 属性区分整数与有限小数。
 
-- [ ] RED：三模式每两种启用顺序、全局与漫画覆盖、关闭不跳模式、损坏配置优先级、默认与按漫画保存失败回滚；阈值 1/37/50/254 可用，0/255/37.5 拒绝；最小边 2/12.5/50 可用，NaN/无穷/越界拒绝。
-- [ ] RED：Web 默认与固定来源在浅线、独立小格、边框严格度、溢出对白、复杂排序样本的结果深度一致；调强度与对白距离真实改变来源入参；只恢复四项，视图/顺序/启用不变。基础数组及几何复用，不重复复制。
+- [x] RED：三模式每两种启用顺序、全局与漫画覆盖、关闭不跳模式、损坏配置优先级、默认与按漫画保存失败回滚；阈值 1/37/50/254 可用，0/255/37.5 拒绝；最小边 2/12.5/50 可用，NaN/无穷/越界拒绝。
+- [x] RED：Web 默认与固定来源在浅线、独立小格、边框严格度、溢出对白、复杂排序样本的结果深度一致；调强度与对白距离真实改变来源入参；只恢复四项，视图/顺序/启用不变。基础数组及几何复用，不重复复制。
 
 ```lua
 local Modes = require('webdavmanga.panel_modes')
@@ -104,10 +104,10 @@ values.web_panel_zoom_enabled=false
 assert(Modes.active(values) == nil, '关闭不得自动切换')
 ```
 
-- [ ] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_modes_spec.lua spec/web_panel_source_spec.lua spec/dynamic_panel_parameters_spec.lua`，确认 RED。
-- [ ] GREEN：提取来源算法并保存原哈希、替换规则及版权；把原 Dynamic 负责的互斥迁到 Modes，并迁移全部启用判断/全局和漫画覆盖入口。保留原数值默认行为；全局表单和漫画控件共用同一校验 schema。
-- [ ] 验证新规格及 `settings_spec`、`rebuild_0422_panel_options_spec`、`rebuild_0424_dynamic_panel_spec`、`panel_detector_spec`、`panel_precision_spec`；GitHub 仍为固定提交时才声称采用最新版。
-- [ ] 提交：`feat: add independent web panels and three mode policy`。
+- [x] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_modes_spec.lua spec/web_panel_source_spec.lua spec/dynamic_panel_parameters_spec.lua`，确认 RED。
+- [x] GREEN：提取来源算法并保存原哈希、替换规则及版权；把原 Dynamic 负责的互斥迁到 Modes，并迁移全部启用判断/全局和漫画覆盖入口。保留原数值默认行为；全局表单和漫画控件共用同一校验 schema。
+- [x] 验证新规格及 `settings_spec`、`rebuild_0422_panel_options_spec`、`rebuild_0424_dynamic_panel_spec`、`panel_detector_spec`、`panel_precision_spec`；GitHub 仍为固定提交时才声称采用最新版。
+- [x] 提交：`feat: add independent web panels and three mode policy`。
 
 ## Task 4：有界自动识别与真实参数生效
 

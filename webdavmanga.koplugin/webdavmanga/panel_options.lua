@@ -16,7 +16,7 @@ function Options.index(field,value)
 end
 function Options.valid(field,value)
     if field.minimum then
-        return type(value)=="number" and value==value and value%1==0
+        return type(value)=="number" and value==value and (field.integer==false or value%1==0)
             and value>=field.minimum and value<=field.maximum
     end
     return Options.index(field,value)~=nil

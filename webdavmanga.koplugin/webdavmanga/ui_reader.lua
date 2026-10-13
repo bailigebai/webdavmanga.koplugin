@@ -7,6 +7,8 @@ local PageSequence = require("webdavmanga.page_sequence")
 local Quadrant = require("webdavmanga.quadrant_zoom")
 local BubbleZoom = require("webdavmanga.bubble_zoom")
 local Dynamic = require('webdavmanga.dynamic_panel_zoom')
+local Modes=require('webdavmanga.panel_modes')
+local Web=require('webdavmanga.web_panel_zoom')
 local SafeCallback = require("webdavmanga.safe_callback")
 local ToneAdjust = require("webdavmanga.tone_adjust")
 local ReaderShell = require("webdavmanga.ui_reader_shell")
@@ -1857,7 +1859,7 @@ function Reader:onHold(_, gesture)
         if self.shell then self.shell.bubble_hold_consumed = consumed or nil end
         if consumed then return true end
     end
-    if not Dynamic.enabled(self.reader_settings) then return false end
+    if not Modes.enabled(self.reader_settings) then return false end
     if self.reader_settings.dynamic_panel_zoom_enabled~=true
         and self.reader_settings.panel_entry_gesture=="two_finger_tap"
         and self.reader_settings.grid_zoom_enabled~=true then return false end
@@ -1963,7 +1965,7 @@ function Reader:enter_panel_mode(desired)
         return self.shell:show_status("请先将图片显示切换为整页，再使用智能分格。")
     end
     if self.closing or not self.page_buffer or not self.position or self.pending_request
-        or self.panel_restore or not Dynamic.enabled(self.reader_settings)
+        or self.panel_restore or not Modes.enabled(self.reader_settings)
         or not self.panel_source or not self.panel_detector then return false end
     if self.reader_settings.image_engine == "memory" then
         self.shell:show_status((self.reader_settings.dynamic_panel_zoom_enabled
@@ -2227,18 +2229,19 @@ end
 function Reader:set_panel_option(key,value,make_default)
     local previous=copy_table(self.reader_settings)
     local values=copy_table(previous);values[key]=value
-    Dynamic.resolve(values,previous,key)
+    Modes.resolve(values,previous,key)
     local session=self.panel_session
     if session and session.transition then return false end
-    local target_mode=values.dynamic_panel_zoom_enabled and 'dynamic' or values.panel_zoom_enabled and 'intelligent'
-    local mode_changed=self.panel_entry and (key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled')
+    local target_mode=Modes.active(values)
+    local mode_key=key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled' or key=='web_panel_zoom_enabled'
+    local mode_changed=self.panel_entry and mode_key
         and target_mode~=(self.panel_entry.mode or 'intelligent')
     local snapshot=self.settings.panel_snapshot and self.settings:panel_snapshot()
     local function commit()
         if self.panel_book_key and self.settings.set_panel_reader then
             local patch={[key]=value}
-            if key=='panel_zoom_enabled' or key=='dynamic_panel_zoom_enabled' then
-                patch.panel_zoom_enabled,patch.dynamic_panel_zoom_enabled=values.panel_zoom_enabled,values.dynamic_panel_zoom_enabled
+            if mode_key then
+                for _,field in pairs(Modes.keys) do patch[field]=values[field] end
             end
             return self.settings:set_panel_reader(self.panel_book_key,patch,make_default)==true
         end
@@ -2284,7 +2287,7 @@ function Reader:set_panel_option(key,value,make_default)
         local current=session:set_direction(self:_panel_direction())
         if current then self:_show_panel(current.buffer,current.panel,current.index,current.count) end
     end
-    if not Dynamic.enabled(values) then self:exit_panel_mode() end
+    if not Modes.enabled(values) then self:exit_panel_mode() end
     return true
 end
 
@@ -2541,7 +2544,7 @@ function Reader:reload_settings(values)
     end
     Dynamic.normalize(next_values)
     if not self:_prepare_fit_mode(next_values.fit_mode) then return false end
-    if self.panel_entry and (not Dynamic.enabled(next_values)
+    if self.panel_entry and (not Modes.enabled(next_values)
         or (next_values.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent')~=(self.panel_entry.mode or 'intelligent')
         or next_values.image_engine == "memory") then
         if not self:exit_panel_mode() then return false end
@@ -2695,6 +2698,11 @@ function Reader:show_panel_threshold_input(make_default)
     local Options=require("webdavmanga.panel_options")
     local field
     for _,f in ipairs(Options.fields) do if f.key=="panel_detection_threshold" then field=f end end
+    return self:show_panel_number_input(field,make_default)
+end
+
+function Reader:show_panel_number_input(field,make_default)
+    local Options=require("webdavmanga.panel_options")
     local model={title=field.title..(make_default and " · 保存为默认" or " · 本书"),
         value=tostring(self.reader_settings[field.key] or field.default),description=field.description,
         on_save=self:_callback("save exact panel threshold",function(text)
@@ -2852,6 +2860,7 @@ function Reader:toggle_controls(section)
         for _,field in ipairs(Dynamic.fields) do
             local f=field
             local function cycle(make_default)
+                if f.minimum then return self:show_panel_number_input(f,make_default) end
                 local current=self.reader_settings[f.key]
                 local index=1
                 for i,v in ipairs(f.choices) do if v==current then index=i%#f.choices+1;break end end

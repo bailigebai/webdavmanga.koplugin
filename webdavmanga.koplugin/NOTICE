@@ -224,6 +224,15 @@ Changes: bounded host/native arrays, fitted ordering frames separated from
 protected display bounds, deterministic ties, plugin-owned coverage checks.
 The MIT License for these portions follows:
 
+Web panel recognition is adapted from bailigebai/mangaweb.koplugin v0.8.91
+(prerelease), commit f9e8364efbeccdcebc3bfd9498c93b4d1bbb2673.
+MangaWeb's standalone panel core originally derives from WebDAVManga v0.4.21;
+this extraction retains its later recognition tuning, frame evidence and
+dialogue protection. Only internal namespaces are changed in the two core
+files. Shared arrays/geometry are reused unchanged. Provenance, original
+hashes and upstream notices are in docs/provenance/mangaweb-panels.json.
+The following notice continues to cover the original adapted panel portions.
+
 MIT License
 
 Copyright (c) 2026 KristanLaimon
