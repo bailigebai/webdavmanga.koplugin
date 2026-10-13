@@ -119,8 +119,8 @@ assert(Modes.active(values) == nil, '关闭不得自动切换')
 
 新增 `panel_auto_detection_enabled=false`、`dynamic_panel_auto_detection_enabled=false`；策略 request 传递 `auto_detection`、`detection_threshold`，动态额外传递 `min_side_percent`。原生 `connected_components(raster, threshold, connectivity, options)` 允许第四参数，原调用仍默认 50/8。
 
-- [ ] RED：白底 255/浅线 217、灰底 180/浅线 150、黑底 0/白框 255、均匀灰和噪点样本；自动关闭原框/顺序一致，自动开启阈值实际改变且不写回 40/50；2～50 最小边百分比实际影响候选过滤。
-- [ ] RED：巨大虚拟页像素读取有界，借用 BB 不释放，失败清理所有原生 PIX/BOX；对话溢出范围仍保护且不改变排序框；最大候选 64 不能开放或截取前 64 格。
+- [x] RED：白底 255/浅线 217、灰底 180/浅线 150、黑底 0/白框 255、均匀灰和噪点样本；自动关闭原框/顺序一致，自动开启阈值实际改变且不写回 40/50；2～50 最小边百分比实际影响候选过滤。
+- [x] RED：巨大虚拟页像素读取有界，借用 BB 不释放，失败清理所有原生 PIX/BOX；对话溢出范围仍保护且不改变排序框；最大候选 64 不能开放或截取前 64 格。
 
 ```lua
 local Profile = require('webdavmanga.panel_detection_profile')
@@ -128,11 +128,11 @@ assert(Profile.threshold({[255]=2000,[217]=2000},255,40) == 20)
 assert(Profile.threshold({[180]=4000},180,50) == 50, '均匀页保留手动基准')
 ```
 
-- [ ] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_auto_detection_spec.lua spec/dynamic_panel_parameters_spec.lua`，确认 RED。
-- [ ] GREEN：在已有采样阶段收集统计，智能识别维持 480 上限；动态在 960 上限内按背景差构造原生识别输入。关闭自动时走原行为；开启后仅改变检测的本页阈值。设置位于设计指定高级子页，每页有直接返回。
-- [ ] 评估一次“弱线补充识别”：只对主检测不可靠的页面进行一次低阈值尝试；真实页及边框/对白保护证据证明改善才加入独立默认关闭选项。不能证明则记录“不加入”及原因，不扩大成无界阈值遍历。
-- [ ] 验证新增规格及 `panel_precision_spec`、`panel_gutters_spec`、`rebuild_0412_panel_analysis_spec`、`rebuild_0424_dynamic_panel_spec`；记录有效阈值和对白完整性，不能仅报格数。
-- [ ] 提交：`feat: adapt panel detection to page contrast`。
+- [x] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_auto_detection_spec.lua spec/dynamic_panel_parameters_spec.lua`，确认 RED。
+- [x] GREEN：在已有采样阶段收集统计，智能识别维持 480 上限；动态在 960 上限内按背景差构造原生识别输入。关闭自动时走原行为；开启后仅改变检测的本页阈值。设置位于设计指定高级子页，每页有直接返回。
+- [x] 评估一次“弱线补充识别”：只对主检测不可靠的页面进行一次低阈值尝试；真实页及边框/对白保护证据证明改善才加入独立默认关闭选项。不能证明则记录“不加入”及原因，不扩大成无界阈值遍历。
+- [x] 验证新增规格及 `panel_precision_spec`、`panel_gutters_spec`、`rebuild_0412_panel_analysis_spec`、`rebuild_0424_dynamic_panel_spec`；记录有效阈值和对白完整性，不能仅报格数。
+- [x] 提交：`feat: adapt panel detection to page contrast`。
 
 ## Task 5：三模式接入、原图重识别与生命周期
 

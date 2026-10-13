@@ -13,6 +13,7 @@ Dynamic.fields={
         description='请输入1～254整数。默认50；越小越容易识别浅线与噪点。'},
     {key='dynamic_panel_min_side_percent',default=12.5,title='动态最小宽高比例',minimum=2,maximum=50,integer=false,
         description='请输入2～50的有限数值（允许小数）。宽与高各占页面的比例，默认12.5%。'},
+    {key='dynamic_panel_auto_detection_enabled',default=false,title='高级动态面板识别 · 自动匹配强度',group='advanced',choices={false,true}},
 }
 function Dynamic.normalize(values)
     for _,f in ipairs(Dynamic.fields) do
@@ -54,6 +55,7 @@ function Dynamic.request(values,request)
     request.margin_percent=values.dynamic_panel_margin_percent or 0
     request.detection_threshold=values.dynamic_panel_detection_threshold or 50
     request.min_side_percent=values.dynamic_panel_min_side_percent or 12.5
+    request.auto_detection=values.dynamic_panel_auto_detection_enabled==true
     request.experimental=false
     request.transition_mode,request.cross_page='classic',false
     return request

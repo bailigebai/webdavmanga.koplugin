@@ -44,4 +44,23 @@ expect(reader.reader_settings.dynamic_panel_detection_threshold==37 and reader.s
 expect(select('动态最小宽高比例'),'open fractional percentage editor')
 dialog.typed='12.5';dialog.buttons[1][2].callback()
 expect(reader.reader_settings.dynamic_panel_min_side_percent==12.5,'save fractional value through actual editor')
+local Detector=require('webdavmanga.panel_detector')
+local native_options,threshold,connectivity
+local backend={connected_components=function(_,_,t,c,options)
+ threshold,connectivity,native_options=t,c,options
+ return {width=100,height=100,boxes={{x=0,y=0,w=50,h=50},{x=60,y=60,w=10,h=10}}}
+end}
+local manual={backend=backend,detection_threshold=37,min_side_percent=12.5}
+expect(#assert(Detector.detect_native({buffer={}},manual))==1,'default min side filters small candidates')
+expect(threshold==37 and connectivity==8 and native_options==manual,'native backend receives exact threshold and bounded options')
+local smaller={backend=backend,detection_threshold=50,min_side_percent=2,auto_detection=true}
+expect(#assert(Detector.detect_native({buffer={}},smaller))==2,'numeric minimum size changes actual filtering')
+expect(native_options==smaller,'adaptive switch reaches native backend')
+backend.connected_components=function()
+ local boxes={}
+ for i=0,64 do boxes[#boxes+1]={x=(i%9)*10,y=math.floor(i/9)*10,w=4,h=4}end
+ return {width=100,height=100,boxes=boxes}
+end
+local panels,reason=Detector.detect_native({buffer={}},{backend=backend,min_side_percent=2})
+expect(not panels and reason=='too_many_panels','never silently truncate an excessive native layout')
 print('dynamic_panel_parameters_spec: '..checks..' checks')

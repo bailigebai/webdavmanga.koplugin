@@ -9,6 +9,7 @@ Options.fields={
     {key="panel_protect_text",default=true,title="对白保护范围",group="detection",choices={false,true},labels={"严格原框裁切","保护对白（推荐）"}},
     {key="panel_detection_threshold",default=40,title="分格识别阈值",group="detection",minimum=1,maximum=254,
         description="请输入1到254的整数；越小越容易识别淡线，也越容易识别纸张噪点。默认40。"},
+    {key='panel_auto_detection_enabled',default=false,title='高级分格识别 · 自动匹配强度',group='detection',choices={false,true}},
     {key="panel_background_detection",default="auto",title="页面背景识别",group="detection",choices={"auto","light","dark"},labels={"自动（含深色页）","浅色背景","深色背景"}},
 }
 function Options.index(field,value)

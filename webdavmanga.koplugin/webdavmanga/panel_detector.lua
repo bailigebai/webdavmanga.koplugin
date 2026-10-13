@@ -40,7 +40,7 @@ local function valid_result(result)
     return true
 end
 
-local function filter_and_normalize(boxes, width, height, experimental)
+local function filter_and_normalize(boxes, width, height, experimental, min_side_percent)
     width, height = tonumber(width), tonumber(height)
     if type(boxes) ~= "table" or not width or not height
         or width <= 0 or height <= 0 then return {} end
@@ -57,7 +57,7 @@ local function filter_and_normalize(boxes, width, height, experimental)
             local large_enough = experimental
                 and w >= width * 0.05 and h >= height * 0.05
                 and w * h >= width * height * 0.02
-                or not experimental and w >= width / 8 and h >= height / 8
+                or not experimental and w >= width * min_side_percent / 100 and h >= height * min_side_percent / 100
             if large_enough then
                 accepted[#accepted + 1] = {
                     x = left / width,
@@ -137,10 +137,12 @@ local function default_backend()
     end
 
     return {
-        connected_components = function(_, raster, threshold, connectivity)
+        connected_components = function(_, raster, threshold, connectivity, options)
             raster = raster or {}
+            options = options or {}
             local decoded, scaled, crop_box, clipped
             local gray, inverted, binary, components
+            local background
             local result, reason
             local worked = pcall(function()
                 local dark = false
@@ -157,19 +159,55 @@ local function default_backend()
                     decoded = lept.pixCreate(w, h, 8)
                     if decoded == nil then error('native_raster_allocation_failed') end
                     local dark_edges, edges = 0, 0
+                    local histogram,edge_histogram={},{}
+                    local pixels=options.auto_detection==true and require('webdavmanga.panel_arrays').new('uint8_t[?]',w*h) or nil
+                    local left,top,right,bottom,profile_edges=0,0,w,h,0
+                    if pixels and type(raster.crop)=='table' then
+                        local crop=raster.crop
+                        local cx,cy,cw,ch=finite_number(crop.x),finite_number(crop.y),finite_number(crop.w),finite_number(crop.h)
+                        if not cx or not cy or not cw or not ch then error('invalid_crop') end
+                        -- Sample centers within the intended crop, excluding the
+                        -- extra border pixels retained by native floor/ceil clipping.
+                        left,top=math.ceil(math.max(0,math.min(1,cx))*w-.5),math.ceil(math.max(0,math.min(1,cy))*h-.5)
+                        right,bottom=math.ceil(math.max(0,math.min(1,cx+cw))*w-.5),math.ceil(math.max(0,math.min(1,cy+ch))*h-.5)
+                        if right<=left or bottom<=top then error('invalid_crop') end
+                    end
                     for y = 0, h - 1 do for x = 0, w - 1 do
                         local pixel = buffer:getPixel(math.min(bw - 1, math.floor((x + .5) * bw / w)),
                             math.min(bh - 1, math.floor((y + .5) * bh / h)))
                         local gray = finite_number(type(pixel) == 'number' and pixel or pixel:getColor8().a)
                         if not gray then error('invalid_native_pixel') end
                         gray = math.max(0, math.min(255, math.floor(gray)))
-                        if lept.pixSetPixel(decoded, x, y, gray) ~= 0 then error('native_pixel_write_failed') end
+                        if pixels then
+                            pixels[y*w+x]=gray
+                            if x>=left and x<right and y>=top and y<bottom then
+                                histogram[gray]=(histogram[gray] or 0)+1
+                                if x==left or x==right-1 or y==top or y==bottom-1 then
+                                    edge_histogram[gray]=(edge_histogram[gray] or 0)+1
+                                    profile_edges=profile_edges+1
+                                end
+                            end
+                        elseif lept.pixSetPixel(decoded, x, y, gray) ~= 0 then error('native_pixel_write_failed') end
                         if x == 0 or y == 0 or x == w - 1 or y == h - 1 then
                             edges = edges + 1
                             if gray < 128 then dark_edges = dark_edges + 1 end
                         end
                     end end
                     dark = dark_edges > edges / 2
+                    if pixels then
+                        local count=0
+                        for value=0,255 do
+                            count=count+(edge_histogram[value] or 0)
+                            if count>=profile_edges/2 then background=value;break end
+                        end
+                        threshold=require('webdavmanga.panel_detection_profile').threshold(histogram,background,threshold)
+                        for y=0,h-1 do for x=0,w-1 do
+                            if lept.pixSetPixel(decoded,x,y,math.abs(pixels[y*w+x]-background))~=0 then
+                                error('native_pixel_write_failed')
+                            end
+                        end end
+                        dark=true -- Contrast raster already has background=0 and bright ink.
+                    end
                 elseif type(raster.path) == "string" and raster.path ~= "" then
                     decoded = lept.pixRead(raster.path)
                 elseif type(raster.bytes) == "string" and raster.bytes ~= "" then
@@ -279,6 +317,7 @@ local function default_backend()
                     boxes = boxes,
                     width = tonumber(lept.pixGetWidth(working)),
                     height = tonumber(lept.pixGetHeight(working)),
+                    threshold=threshold,background=background,
                 }
             end)
 
@@ -301,32 +340,37 @@ end
 function PanelDetector.detect(raster, options)
     options = options or {}
     if raster and raster.buffer and not options.backend then
-        local panels,reason=require("webdavmanga.panel_analysis").detect(raster,options)
+        local panels,reason,diagnostic=require("webdavmanga.panel_analysis").detect(raster,options)
         if not panels then return nil,reason end
-        return PanelDetector.sort(panels,options.direction or "normal")
+        return PanelDetector.sort(panels,options.direction or "normal"),nil,diagnostic
     end
     return PanelDetector.detect_native(raster, options)
 end
 
 function PanelDetector.detect_native(raster, options)
     options = options or {}
+    local threshold=finite_number(options.detection_threshold) or 50
+    local minimum=finite_number(options.min_side_percent) or 12.5
+    if threshold%1~=0 or threshold<1 or threshold>254 or minimum<2 or minimum>50 then
+        return nil,'invalid_panel_settings'
+    end
     local backend, backend_err = options.backend, nil
     if not backend then backend, backend_err = default_backend() end
     if not backend then return nil, backend_err or "leptonica_unavailable" end
     local result, err = invoke(
-        backend, "connected_components", raster, 50, 8)
+        backend, "connected_components", raster, threshold, 8, options)
     if not result then return nil, err or "panel_detection_failed" end
     local ok, panels, process_err = pcall(function()
         if not valid_result(result) then return nil, "panel_detection_failed" end
         local filtered = filter_and_normalize(
             result.boxes, result.width, result.height,
-            options.experimental == true)
+            options.experimental == true,minimum)
         if #filtered == 0 then return nil, "no_panels" end
         if #filtered > 64 then return nil, "too_many_panels" end
         return PanelDetector.sort(filtered, options.direction or "normal")
     end)
     if not ok then return nil, "panel_detection_failed" end
-    return panels, process_err
+    return panels, process_err,{threshold=result.threshold,background=result.background}
 end
 
 return PanelDetector

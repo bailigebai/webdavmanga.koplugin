@@ -2020,6 +2020,7 @@ function Reader:enter_panel_mode(desired)
         experimental = self.reader_settings.panel_experimental_sort == true,
         protect_text=self.reader_settings.panel_protect_text~=false,
         detection_threshold=self.reader_settings.panel_detection_threshold,
+        auto_detection=self.reader_settings.panel_auto_detection_enabled==true,
         background_detection=self.reader_settings.panel_background_detection,
         transition_mode=shell.is_graydither_refresh_managed and shell:is_graydither_refresh_managed()
             and "classic" or self.reader_settings.panel_transition_mode or "classic",
@@ -2854,17 +2855,18 @@ function Reader:toggle_controls(section)
         actions[#actions+1]=action('宽图拆分设置','grid split settings',function() return show_section('split') end)
         actions[#actions+1]=action('继续阅读','resume grid page',show_current_page)
         actions[#actions+1]=action('← 返回上一级','grid settings back',function() return show_section('root') end)
-    elseif section=='dynamic' then
-        title='动态面板变焦 · 本书 / 长按默认'
+    elseif section=='dynamic' or section=='dynamic_advanced' then
+        title=section=='dynamic_advanced' and '高级动态面板识别' or '动态面板变焦 · 本书 / 长按默认'
         actions={}
         for _,field in ipairs(Dynamic.fields) do
+            if (section=='dynamic_advanced')==(field.group=='advanced') then
             local f=field
             local function cycle(make_default)
                 if f.minimum then return self:show_panel_number_input(f,make_default) end
                 local current=self.reader_settings[f.key]
                 local index=1
                 for i,v in ipairs(f.choices) do if v==current then index=i%#f.choices+1;break end end
-                return persist_and_reopen('dynamic',function()
+                return persist_and_reopen(section,function()
                     return self:set_panel_option(f.key,f.choices[index],make_default)
                 end)
             end
@@ -2874,10 +2876,16 @@ function Reader:toggle_controls(section)
                 'dynamic '..f.key,function() return cycle(false) end)
             item.hold_callback=self:_callback('default '..f.key,function() return cycle(true) end,false)
             actions[#actions+1]=item
+            end
         end
+        if section=='dynamic_advanced' then
+            actions[#actions+1]=action('← 返回上一级','return to dynamic settings',function()return show_section('dynamic')end)
+        else
+        actions[#actions+1]=action('高级动态面板识别设置','dynamic auto detection',function()return show_section('dynamic_advanced')end)
         actions[#actions+1]=action('退出动态面板 → 整页','exit dynamic panels',function() return self:exit_panel_mode() end)
         actions[#actions+1]=action('继续阅读','resume dynamic panels',show_current_page)
         actions[#actions+1]=action('← 返回上一级','dynamic settings back',function() return show_section('root') end)
+        end
     elseif section == "panel_view" then
         title="分格视图 · 点按本书 / 长按默认"
         local function choice(text,key,value)

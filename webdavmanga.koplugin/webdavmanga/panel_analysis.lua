@@ -27,12 +27,13 @@ local function sample(raster,options)
     local scale=math.min(1,MAX_SIDE/math.max(width,height))
     local w,h=math.max(1,math.floor(width*scale)),math.max(1,math.floor(height*scale))
     local data=Arrays.new("uint8_t[?]",w*h)
-    local histogram,total={},0
+    local histogram,total,page_histogram={},0,{}
     local band=math.max(1,math.floor(math.min(w,h)*.01))
     for y=0,h-1 do for x=0,w-1 do
         local value=gray(b,math.min(bw-1,math.floor(left+(x+.5)*width/w)),
             math.min(bh-1,math.floor(top+(y+.5)*height/h)))
         data[y*w+x]=value
+        page_histogram[value]=(page_histogram[value] or 0)+1
         if x<band or x>=w-band or y<band or y>=h-band then
             histogram[value]=(histogram[value] or 0)+1;total=total+1
         end
@@ -61,12 +62,22 @@ local function sample(raster,options)
     elseif options.background_detection=="dark" then background=0 end
     local threshold=options.detection_threshold or 40
     if not finite(threshold) or threshold%1~=0 or threshold<1 or threshold>254 then threshold=40 end
+    local baseline=threshold
+    if options.auto_detection==true then
+        threshold=require('webdavmanga.panel_detection_profile').threshold(page_histogram,background,baseline)
+    end
+    -- A weaker candidate threshold must never erase faint overflow dialogue.
+    local protection_threshold=math.min(threshold,baseline,40)
+    local protection=protection_threshold<threshold and Arrays.new('uint8_t[?]',w*h) or nil
     local ink=0
     for i=0,w*h-1 do
-        data[i]=math.abs(data[i]-background)>threshold and 1 or 0
+        local difference=math.abs(data[i]-background)
+        if protection then protection[i]=difference>protection_threshold and 1 or 0 end
+        data[i]=difference>threshold and 1 or 0
         ink=ink+data[i]
     end
-    return {w=w,h=h,data=data,ink=ink,bg=background}
+    return {w=w,h=h,data=data,ink=ink,bg=background,threshold=threshold,
+        protection=protection and {w=w,h=h,data=protection} or nil}
 end
 local function padded(r,map,amount)
     local x,y=math.max(0,math.floor(r.x-amount)),math.max(0,math.floor(r.y-amount))
@@ -137,19 +148,19 @@ local function detect(raster,options)
     if #panels==1 and panels[1].w*panels[1].h<map.w*map.h*.6 then
         return nil,"panel_layout_uncertain"
     end
-    local value,reason=protect(panels,map)
+    local value,reason=protect(panels,map.protection or map)
     if not value then return nil,reason end
     for _,p in ipairs(panels) do
         p.x,p.y,p.w,p.h=p.x/map.w,p.y/map.h,p.w/map.w,p.h/map.h
         local r=p.protect;r.x,r.y,r.w,r.h=r.x/map.w,r.y/map.h,r.w/map.w,r.h/map.h
         p.id=("%.9f:%.9f:%.9f:%.9f"):format(p.x,p.y,p.w,p.h)
     end
-    return panels
+    return panels,nil,{threshold=map.threshold,background=map.bg}
 end
 function Analysis.detect(raster,options)
-    local ok,value,reason=pcall(detect,raster,options)
+    local ok,value,reason,diagnostic=pcall(detect,raster,options)
     if not ok then return nil,"panel_detection_failed" end
-    return value,reason
+    return value,reason,diagnostic
 end
 function Analysis.release() Components.clearScratch() end
 return Analysis

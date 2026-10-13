@@ -472,16 +472,28 @@ function ArchivePages:inspect_remote(descriptor, kind, remote_path, options)
         incomplete = #pages < total_pages, total_pages = total_pages }
 end
 
+local bit_ok, bit = pcall(require, "bit")
+local XOR_NIBBLES = {}
+if not bit_ok then
+    for left = 0, 15 do for right = 0, 15 do
+        local a, b, value, place = left, right, 0, 1
+        for _ = 1, 4 do
+            if a % 2 ~= b % 2 then value = value + place end
+            a, b, place = math.floor(a / 2), math.floor(b / 2), place * 2
+        end
+        XOR_NIBBLES[left * 16 + right] = value
+    end end
+end
+
 local function arithmetic_xor32(left, right)
     local result, place = 0, 1
-    for _ = 1, 32 do
-        if left % 2 ~= right % 2 then result = result + place end
-        left, right, place = math.floor(left / 2), math.floor(right / 2), place * 2
+    for _ = 1, 8 do
+        result = result + XOR_NIBBLES[(left % 16) * 16 + right % 16] * place
+        left, right, place = math.floor(left / 16), math.floor(right / 16), place * 16
     end
     return result
 end
 
-local bit_ok, bit = pcall(require, "bit")
 local bxor = bit_ok and bit.bxor or arithmetic_xor32
 local rshift = bit_ok and bit.rshift or function(value, count)
     return math.floor(value / 2 ^ count)
