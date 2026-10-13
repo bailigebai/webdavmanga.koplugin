@@ -1,14 +1,6 @@
-## 0.4.30 分格识别与宿主动画
-
-- 识别阈值可直接输入1–254整数，支持本书设置与长按保存默认。
-- 在已有框线检测未能拆开页面时，补入Meguru递归沟槽、斜向沟槽及框内空白保护；继续使用现有对白保护和阅读顺序。
-- 分格动画设置只保留经典与原生 / 已安装 Swipe Animation；移除独立自绘淡入和移动帧，不覆盖KOReader核心。
-- [安装包](downloads/webdavmanga.koplugin-v0.4.30-20261012-panel-refinement.zip) · [版本说明](docs/releases/v0.4.30.md)
-- [Meguru参考代码](https://github.com/Craftwork2720/meguru/blob/8ed689e920d6175ddbbe82ddb900d1b091101dd8/meguru/panel.lua) · [Swipe Animation接口](https://github.com/koplugin-swipe-animation/Swipe_Animation.koplugin/blob/59dce480c38538976325f7ebc0831e36bc4c6ed4/patches/2-swipe-animation-core.lua)
-
 # KOReader WebDAV 漫画插件
 
-当前源码：**0.4.29，2026-10-11 漫画书架翻页响应与完整刷新，设备测试版**。OPDS、设置、分类/评分/缓存架和指针阅读统一保留插件背景；退出时背景最后关闭；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
+当前源码：**0.4.31，2026-10-13 三种分格与设置导航，设备测试版**。OPDS、设置、分类/评分/缓存架和指针阅读统一保留插件背景；退出时背景最后关闭；交付前执行七份原文件的 ARM 正文与书架首图检查。使用说明见[插件说明](webdavmanga.koplugin/README.md)，证据见[验证记录](docs/verification.md)。
 
 通过 WebDAV、OPDS 和本地文件进入漫画书架与阅读器，支持图片型 EPUB、受限图片型 PDF、ZIP/CBZ、RAR/CBR、7Z/CB7、TAR/CBT 等容器。具体格式与设备限制见 [插件说明](webdavmanga.koplugin/README.md)。
 
@@ -16,16 +8,20 @@
 
 本版是**设备测试版，真机使用验收待完成**。完整回归结果见验证记录；Kindle 书架与清理操作、触控、墨水屏和性能仍需真机验收。
 
-请在 [v0.4.29 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.29) 下载 `webdavmanga.koplugin-v0.4.29-20261011-bookshelf-responsive.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
+请在 [v0.4.31 发布页](https://github.com/bailigebai/webdavmanga.koplugin/releases/tag/v0.4.31) 下载 `webdavmanga.koplugin-v0.4.31-20261013-panel-modes-settings.zip` 与同名 `.sha256`。已有 GrayDither 0.3.1 可继续使用；需要数字框修复的用户另更新该插件。
 
 1. 完全退出 KOReader，备份原插件，解压得到 `webdavmanga.koplugin` 文件夹。
 2. 将完整文件夹复制至 `koreader/plugins/`，覆盖插件程序文件。
 3. 检查最终路径为 `koreader/plugins/webdavmanga.koplugin/main.lua`，不要多套一层目录。
-4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.29`，打开测试目录逐个验证七份原文件。
+4. 完全重启 KOReader，在关于确认 WebDAV Manga `0.4.31`，打开测试目录逐个验证七份原文件。
 
 升级时保留 KOReader 用户数据和 `settings/` 目录，尤其是 `webdavmanga.lua` 与 `webdavmanga-license.lua`；账号设置、授权和阅读记录不在安装包中。
 
 qiqi 应用商店的更新以 GitHub Releases 和商店项目列表为准；更新后完全退出并重启 KOReader。
+
+## v0.4.31：三种分格与设置导航
+
+设置逐层隐藏父页并直接返回；删除插件分格截图；设备四角度旋转移至阅读设置首页。新增独立 Web 分格，三种模式互斥；动态阈值和最小宽高可输入准确数字，智能与动态高级自动匹配默认关闭。阅读中调参和切换检测模式复用本地原图，失败保留原设置和画面，未可靠识别页显示整页后下一页继续检测。[安装包](downloads/webdavmanga.koplugin-v0.4.31-20261013-panel-modes-settings.zip) · [说明及验收](docs/releases/v0.4.31.md) · [固定来源](docs/provenance/mangaweb-panels.json)。
 
 ## v0.4.29：书架翻页响应与完整刷新
 
