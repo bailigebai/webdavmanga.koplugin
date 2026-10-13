@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import subprocess
+import stream_formats_contract
 from PIL import Image
 
 def main():
@@ -17,6 +18,9 @@ def main():
     p.add_argument('--report',type=Path,required=True)
     args=p.parse_args()
     repo=Path(__file__).resolve().parents[1]
+    args.report.parent.mkdir(parents=True,exist_ok=True)
+    args.report.write_bytes(b'{"passed":false}\n')
+    before=stream_formats_contract.runtime_fingerprint(repo/'webdavmanga.koplugin')
     args.output.mkdir(parents=True,exist_ok=False)
     sample_dir=args.output/'samples';sample_dir.mkdir()
     manifest=[]
@@ -38,6 +42,11 @@ def main():
     faint=Image.new('L',(200,240),255);draw=ImageDraw.Draw(faint)
     for x,y,w,h in ((10,20,80,90),(110,20,80,90),(10,140,180,90)):draw.rectangle((x,y,x+w-1,y+h-1),outline=217,width=3)
     add('faint-default40',faint,0,40);add('faint-exact37',faint,3,37)
+    for label,background,ink in [('auto-white-faint',255,217),('auto-gray-faint',180,150),('auto-black-white',0,255)]:
+        image=Image.new('L',(200,240),background);draw=ImageDraw.Draw(image)
+        for x,y,w,h in ((10,20,80,90),(110,20,80,90),(10,140,180,90)):
+            draw.rectangle((x,y,x+w-1,y+h-1),outline=ink,width=3)
+        add(label,image,{'intelligent-auto':3,'dynamic-auto':3,'web-strong':3})
     for source in [args.samples/'漫画测试11.zip',next(args.samples.glob('*.epub'))]:
         with ZipFile(source) as z:
             candidates=[]
@@ -59,10 +68,20 @@ def main():
         '-e','LUA_CPATH=/runtime/?.so;;','-e','LD_LIBRARY_PATH=/native/libs',
         'webdavmanga-kindlehf-offline:20260928','luajit','/checks/panel_analysis_native.lua']
     subprocess.run(cmd,check=True)
+    for contract in ('dynamic_panel_native.lua','panel_profile_native.lua'):
+        subprocess.run(cmd[:-1]+['/checks/'+contract],check=True)
     report=json.loads((args.output/'panel-native-result.json').read_text())
+    report['dynamic_native']=json.loads((args.output/'dynamic-native-result.json').read_text())
+    report['adaptive_native']=json.loads((args.output/'profile-native-result.json').read_text())
+    if before!=stream_formats_contract.runtime_fingerprint(repo/'webdavmanga.koplugin'):
+        raise ValueError('Runtime changed during native panel checks')
+    report['source_runtime_sha256']=before
+    report['passed']=True
+    report['contract_sha256']={name:hashlib.sha256((repo/'spec/contracts'/name).read_bytes()).hexdigest()
+        for name in ('panel_analysis_native.lua','dynamic_panel_native.lua','panel_profile_native.lua')}
     report.update(scope='ARM emulator: real KOReader BB8; synthetic counts are asserted, real-page visual accuracy still needs device acceptance',
         samples=manifest,module_sha256={name:hashlib.sha256((repo/'webdavmanga.koplugin/webdavmanga'/name).read_bytes()).hexdigest()
-            for name in ('panel_detector.lua','panel_analysis.lua','panel_components.lua','panel_gutters.lua','panel_geometry.lua')})
+            for name in ('panel_detector.lua','panel_analysis.lua','panel_components.lua','panel_gutters.lua','panel_geometry.lua','dynamic_panel_zoom.lua','panel_detection_profile.lua','web_panel_zoom.lua','web_panel_analysis.lua','web_panel_components.lua','panel_session.lua')})
     args.report.parent.mkdir(parents=True,exist_ok=True)
     args.report.write_bytes((json.dumps(report,ensure_ascii=False,indent=2)+'\n').encode())
     print(json.dumps({'cases':len(report['cases']),'counts':[v['count'] for v in report['cases']],

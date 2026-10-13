@@ -1,4 +1,4 @@
-WebDAV Manga for KOReader - version 0.4.30
+WebDAV Manga for KOReader - version 0.4.31
 
 The recursive gutter detection in webdavmanga/panel_gutters.lua is adapted
 from Craftwork2720/Meguru, meguru/panel.lua, commit
@@ -9,7 +9,8 @@ speech protection, with conservative rectangular display bounds.
 
 Version 0.4.23 independently extends its existing panel reader with dialogue-first
 input, bounded camera/fade transitions, free-page entry, book-specific advanced
-controls, view screenshots and device-or-image rotation. PanelsPlus (4070483),
+controls and device-or-image rotation. Version 0.4.31 removes plugin panel screenshots,
+adds transactional local redetection and three mutually exclusive detectors. PanelsPlus (4070483),
 Meguru (ebbe7d0) and BubbleZoom (de38fc0) were reviewed as behavior/API references.
 No new upstream implementation or binary is copied by this change. Existing
 MIT-adapted panel component/geometry portions retain the notices below.

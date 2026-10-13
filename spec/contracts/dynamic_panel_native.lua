@@ -28,13 +28,14 @@ local BB=require('ffi/blitbuffer')
 local Dynamic=require('webdavmanga.dynamic_panel_zoom')
 local json=require('json')
 local results={}
-local function run(label,buffer,count,direction)
+local function run(label,buffer,count,direction,options)
     local started=os.clock()
-    local panels,reason=Dynamic.detect({buffer=buffer,max_width=600,max_height=800},{direction=direction or 'normal'})
+    options=options or {};options.direction=direction or 'normal'
+    local panels,reason,diagnostic=Dynamic.detect({buffer=buffer,max_width=600,max_height=800},options)
     assert((panels and #panels or 0)==count,label..': '..tostring(reason))
     assert(created==destroyed,label..': native allocation leak')
     results[#results+1]={label=label,panels=panels or {},reason=reason,seconds=os.clock()-started,
-        created=created,destroyed=destroyed}
+        created=created,destroyed=destroyed,options=options,effective_profile=diagnostic}
     return panels
 end
 local function page(dark)
@@ -63,6 +64,13 @@ local bad={getWidth=function() return 400 end,getHeight=function() return 600 en
     getPixel=function() error('injected pixel failure') end}
 run('pixel-failure-cleanup',bad,0)
 for i=1,8 do run('repeat-'..i,light,4) end
+local small=page(false)
+for _,r in ipairs({{190,275,20,3},{190,292,20,3},{190,275,3,20},{207,275,3,20}})do
+    small:paintRect(r[1],r[2],r[3],r[4],BB.Color8(0))
+end
+run('default-min-side',small,4,'normal',{detection_threshold=37,min_side_percent=12.5})
+run('precise-min-side2',small,5,'normal',{detection_threshold=37,min_side_percent=2})
+small:free()
 light:free();dark:free();blank:free()
 local f=assert(io.open('/output/dynamic-native-result.json','wb'))
 f:write(json.encode({arch=ffi.arch,created=created,destroyed=destroyed,cases=results}));f:close()
