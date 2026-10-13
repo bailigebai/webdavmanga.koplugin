@@ -286,6 +286,30 @@ local function default_ui()
     local registry = UiRegistry:new(UIManager)
 
     local adapter = { dialog_epoch = 0 }
+    -- Bind button callbacks before native constructors copy their options.
+    -- Closed windows must not save values or reopen an obsolete parent.
+    local function owned_dialog(class, model)
+        local dialog
+        for _, row in ipairs(model.buttons or {}) do
+            for _, button in ipairs(row) do
+                for _, key in ipairs({"callback", "hold_callback"}) do
+                    local callback = button[key]
+                    if type(callback) == "function" then
+                        button[key] = function(...)
+                            if not dialog or not registry.widgets[dialog] then return true end
+                            return callback(...)
+                        end
+                    end
+                end
+            end
+        end
+        dialog = class:new(model)
+        return dialog
+    end
+    local function owned_class(class)
+        return { new = function(_, model) return owned_dialog(class, model) end }
+    end
+    ButtonDialog, MultiInputDialog = owned_class(ButtonDialog), owned_class(MultiInputDialog)
     local function show_dialog_keyboard(dialog)
         return DialogKeyboard.show(dialog)
     end
@@ -313,11 +337,21 @@ local function default_ui()
     function adapter:show_info(message, timeout)
         registry:show(InfoMessage:new{ text = message, timeout = timeout or 3 })
     end
-    function adapter:show_reader_help(text)
+    function adapter:show_reader_help(text, on_return)
         local TextViewer = require("ui/widget/textviewer")
-        registry:show(TextViewer:new{
+        local dialog
+        dialog = TextViewer:new{
             title = "漫画阅读说明", text = text, fullscreen = true, covers_fullscreen = true,
-        })
+            buttons_table = {{{text = "← 返回上一级", callback = function() return dialog:onClose() end}}},
+            add_default_buttons = false,
+        }
+        dialog.onClose = guarded("return from manga help", function()
+            if not registry.widgets[dialog] then return true end
+            if registry:close(dialog) == false then return true end
+            if on_return then return on_return() end
+            return true
+        end)
+        registry:show(dialog)
         return true
     end
     function adapter:show_busy(message)
@@ -922,7 +956,9 @@ local function default_ui()
         local root_dialog
 
         local function close(widget)
-            if widget then pcall(registry.close, registry, widget) end
+            if not widget then return true end
+            local ok, result = pcall(registry.close, registry, widget)
+            return ok and result ~= false
         end
 
         local function text_value(value)
@@ -1125,7 +1161,7 @@ local function default_ui()
         }
 
         local function after_close(widget, callback)
-            close(widget)
+            if not close(widget) then return false end
             return defer_current(dialog_epoch, "reader settings transition", callback)
         end
 
@@ -1173,7 +1209,7 @@ local function default_ui()
                     if #row == 2 then buttons[#buttons + 1] = row; row = {} end
                 end
                 local cancel = {
-                    text = "取消",
+                    text = "← 返回上一级",
                     callback = guarded("cancel " .. field.key, function()
                         return after_close(dialog, function() show_section(section) end)
                     end),
@@ -1207,7 +1243,7 @@ local function default_ui()
                     input_type = "number",
                 }},
                 buttons = {{
-                    { text = "取消", id = "close", callback = guarded(
+                    { text = "← 返回上一级", id = "close", callback = guarded(
                         "cancel " .. field.key, function()
                             return after_close(dialog, function() show_section(section) end)
                         end) },
@@ -1238,7 +1274,7 @@ local function default_ui()
                 if #row == 2 then buttons[#buttons + 1] = row; row = {} end
             end
             local back = {
-                text = "返回设置首页",
+                text = "← 返回上一级",
                 callback = guarded("back from " .. section.key, function()
                     return after_close(dialog, show_root)
                 end),
@@ -1273,6 +1309,7 @@ local function default_ui()
                 text = "完成",
                 callback = guarded("close reader settings", function()
                     close(root_dialog)
+                    if model.on_return then return model.on_return() end
                     return true
                 end),
             }
@@ -1396,8 +1433,10 @@ local function default_ui()
             }}
         end
         buttons[#buttons + 1] = {{
-            text = "关闭",
-            callback = guarded("close gray settings", close),
+            text = "← 返回上一级",
+            callback = guarded("close gray settings", function()
+                return close_then(model.on_return)
+            end),
         }}
         dialog = ButtonDialog:new{ title = "漫画去灰增强", width_factor = 0.94, buttons = buttons }
         registry:show(dialog)
@@ -1431,13 +1470,17 @@ local function default_ui()
                 { description = "gamma 伽马（0.10-5.00）", text = tostring(values.gamma or "1.20"), input_type = "number" },
             },
             buttons = {{
-                { text = "取消", id = "close", callback = guarded("cancel gray preset editor", function()
+                { text = "← 返回上一级", id = "close", callback = guarded("cancel gray preset editor", function()
                     registry:close(dialog)
+                    if model.on_return then return model.on_return() end
                     return true
                 end) },
                 { text = "保存", callback = guarded("save gray preset editor", function()
                     local result = model.on_save and model.on_save(fields())
-                    if result then registry:close(dialog) end
+                    if result then
+                        registry:close(dialog)
+                        if model.on_return then model.on_return() end
+                    end
                     return true
                 end) },
             }},
@@ -1516,8 +1559,10 @@ local function default_ui()
             }}
         end
         buttons[#buttons + 1] = {{
-            text = "关闭",
-            callback = guarded("close tone settings", close),
+            text = "← 返回上一级",
+            callback = guarded("close tone settings", function()
+                return close_then(model.on_return)
+            end),
         }}
         dialog = ButtonDialog:new{
             title = "亮度与对比度", width_factor = 0.94, buttons = buttons,
@@ -1553,14 +1598,18 @@ local function default_ui()
                     text = tostring(values.contrast or "100"), input_type = "number" },
             },
             buttons = {{
-                { text = "取消", id = "close", callback = guarded(
+                { text = "← 返回上一级", id = "close", callback = guarded(
                     "cancel tone preset editor", function()
                         registry:close(dialog)
+                        if model.on_return then return model.on_return() end
                         return true
                     end) },
                 { text = "保存", callback = guarded("save tone preset editor", function()
                     local result = model.on_save and model.on_save(fields())
-                    if result then registry:close(dialog) end
+                    if result then
+                        registry:close(dialog)
+                        if model.on_return then model.on_return() end
+                    end
                     return true
                 end) },
             }},
@@ -1586,14 +1635,18 @@ local function default_ui()
                 hint = "/mnt/us/Books/Samples",
             }},
             buttons = {{
-                { text = "取消", id = "close", callback = guarded("cancel gray sample path", function()
+                { text = "← 返回上一级", id = "close", callback = guarded("cancel gray sample path", function()
                     registry:close(dialog)
+                    if model.on_return then return model.on_return() end
                     return true
                 end) },
                 { text = "保存", callback = guarded("save gray sample path", function()
                     local input = dialog:getFields() or {}
                     local result = model.on_save and model.on_save(input[1] or "")
-                    if result then registry:close(dialog) end
+                    if result then
+                        registry:close(dialog)
+                        if model.on_return then model.on_return() end
+                    end
                     return true
                 end) },
             }},
@@ -1620,15 +1673,19 @@ local function default_ui()
                 hint = "/mnt/us/Books/Samples",
             }},
             buttons = {{
-                { text = "取消", id = "close", callback = guarded(
+                { text = "← 返回上一级", id = "close", callback = guarded(
                     "cancel " .. stage, function()
                         registry:close(dialog)
+                        if model.on_return then return model.on_return() end
                         return true
                     end) },
                 { text = "保存", callback = guarded("save " .. stage, function()
                     local input = dialog:getFields() or {}
                     local result = model.on_save and model.on_save(input[1] or "")
-                    if result then registry:close(dialog) end
+                    if result then
+                        registry:close(dialog)
+                        if model.on_return then model.on_return() end
+                    end
                     return true
                 end) },
             }},
@@ -1752,7 +1809,7 @@ local function default_ui()
                 },
             }
             local return_button = dependencies.Button:new{
-                text = "返回",
+                text = "← 返回上一级",
                 text_font_face = "cfont",
                 text_font_size = 24,
                 width = math.min(240, math.max(1, width - 24)),
@@ -1762,7 +1819,7 @@ local function default_ui()
                 bordersize = 2,
                 -- Preview:init runs before close_preview is assigned. Resolve
                 -- the upvalue at tap time so the button never captures nil.
-                callback = function() return close_preview and close_preview() end,
+                callback = function() return close_preview and close_preview(true) end,
             }
             local return_size = return_button:getSize()
             local bottom_return = dependencies.VerticalGroup:new{
@@ -1785,8 +1842,8 @@ local function default_ui()
                 bottom_return,
             }
         end
-        function Preview:onBack() return close_preview() end
-        function Preview:onClose() return close_preview() end
+        function Preview:onBack() return close_preview(true) end
+        function Preview:onClose() return close_preview(true) end
         local widget = Preview:new{}
         local closed = false
         local disposed = false
@@ -1802,11 +1859,12 @@ local function default_ui()
             closed = true
             dispose()
         end
-        close_preview = function()
+        close_preview = function(user_return)
             if closed then return true end
-            registry:close(widget)
+            if registry:close(widget) == false then return false end
             closed = true
             dispose()
+            if user_return and model.on_return then model.on_return() end
             return true
         end
         local shown, err = pcall(function()
@@ -1864,11 +1922,15 @@ local function default_ui()
             end,
             fields = fields,
             buttons = {{
-                { text = "取消", id = "close", callback = guarded("close light settings", function()
+                { text = "← 返回上一级", id = "close", callback = guarded("close light settings", function()
                     registry:close(dialog)
+                    if model.on_return then return model.on_return() end
                 end) },
                 { text = "保存", callback = guarded("save light settings", function()
-                    if model.on_save(values()) then registry:close(dialog) end
+                    if model.on_save(values()) then
+                        registry:close(dialog)
+                        if model.on_return then model.on_return() end
+                    end
                 end) },
             }},
         }, function() return dialog end))
@@ -2269,6 +2331,26 @@ function UiSettings:_callback(label, callback, fallback)
     return SafeCallback.wrap(self.error_reporter or self.ui, label, callback, fallback)
 end
 
+function UiSettings:_settings_callback(label, callback)
+    local epoch = self.session_epoch or 0
+    return self:_callback(label, function(...)
+        if (self.session_epoch or 0) ~= epoch then return false end
+        return callback(...)
+    end, false)
+end
+
+function UiSettings:_settings_return(kind, on_return)
+    self.settings_returns = self.settings_returns or {}
+    if type(on_return) == "function" then
+        self.settings_returns[kind] = self:_settings_callback("return from " .. kind, on_return)
+    end
+    return self:_settings_callback("close " .. kind .. " settings", function()
+        local callback = self.settings_returns[kind]
+        self.settings_returns[kind] = nil
+        return not callback or callback()
+    end)
+end
+
 function UiSettings:show_license(model)
     model = model or {}
     local request = copy_table(model)
@@ -2445,6 +2527,7 @@ end
 
 function UiSettings:close_all()
     self.session_epoch = (self.session_epoch or 0) + 1
+    self.settings_returns = nil
     for request in pairs(self.activation_requests or {}) do request.close_session() end
     if self.connection_test_lifecycle then
         self.connection_test_lifecycle.closed = true
@@ -3010,22 +3093,27 @@ function UiSettings:show_connection(on_saved)
     return self:_show_connection_dialog(on_saved, nil, false)
 end
 
-function UiSettings:show_reader(initial_section)
+function UiSettings:show_reader(initial_section, on_return)
     local current = self.settings:get_reader()
     local form_values = copy_table(current)
     form_values.auto_crop_threshold = nil
     form_values.auto_crop_strength = AutoCrop.strength_from_threshold(
         current.auto_crop_threshold)
     self.ui:show_reader{
+        on_return = self:_settings_return("reader", on_return),
         values = form_values,
         initial_section = initial_section,
         gray_presets = self.settings:get_gray_presets(),
         tone_presets = self.settings:get_tone_presets(),
         on_open_gray_settings = self:_callback("open gray enhancement settings", function()
-            return self:show_gray_settings()
+            return self:show_gray_settings(self:_settings_callback("back to gray settings", function()
+                return self:show_reader("gray_enhance")
+            end))
         end, false),
         on_open_tone_settings = self:_callback("open tone adjustment settings", function()
-            return self:show_tone_settings()
+            return self:show_tone_settings(self:_settings_callback("back to tone settings", function()
+                return self:show_reader("tone_adjust")
+            end))
         end, false),
         on_open_history = type(self.open_history) == "function"
             and self:_callback("open history from settings", self.open_history, false) or nil,
@@ -3150,6 +3238,9 @@ function UiSettings:_show_gray_editor(preset_id, is_new)
         }
     end
     self.ui:show_gray_preset_editor{
+        on_return = self:_settings_callback("return to gray settings", function()
+            return self:show_gray_settings()
+        end),
         values = values,
         is_new = is_new == true,
         on_save = self:_callback("save gray enhancement preset", function(input)
@@ -3161,7 +3252,6 @@ function UiSettings:_show_gray_editor(preset_id, is_new)
             end
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info("去灰增强预设已保存。")
-            self:show_gray_settings()
             return true
         end, false),
     }
@@ -3175,12 +3265,14 @@ function UiSettings:_show_gray_sample_path()
     end
     local current = self.settings:get_reader().gray_enhance_sample_path or ""
     self.ui:show_gray_sample_path{
+        on_return = self:_settings_callback("return to gray settings", function()
+            return self:show_gray_settings()
+        end),
         value = current,
         on_save = self:_callback("save gray sample path", function(path)
             local ok, err = self.settings:set_gray_sample_path(path)
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info(path == "" and "已清除灰度样本目录。" or "灰度样本目录已保存。")
-            self:show_gray_settings()
             return true
         end, false),
     }
@@ -3194,13 +3286,15 @@ function UiSettings:_show_tone_sample_path()
     end
     local current = self.settings:get_reader().tone_adjust_sample_path or ""
     self.ui:show_tone_sample_path{
+        on_return = self:_settings_callback("return to tone settings", function()
+            return self:show_tone_settings()
+        end),
         value = current,
         on_save = self:_callback("save tone sample path", function(path)
             local ok, err = self.settings:set_tone_sample_path(path)
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info(path == "" and "已清除亮度与对比度样本目录。"
                 or "亮度与对比度样本目录已保存。")
-            self:show_tone_settings()
             return true
         end, false),
     }
@@ -3400,6 +3494,9 @@ function UiSettings:_show_filter_preview(kind)
     return self:_publish_filter_preview(show_preview, {
         path = first, preset = preset, before_buffer = before, after_buffer = after,
         before_label = "调整前", after_label = "调整后",
+        on_return = self:_settings_callback("return from filter preview", function()
+            return is_gray and self:show_gray_settings() or self:show_tone_settings()
+        end),
     }, is_gray and "gray_enhance_preview" or "tone_adjust_preview")
 end
 
@@ -3411,7 +3508,7 @@ function UiSettings:_show_tone_preview()
     return self:_show_filter_preview("tone")
 end
 
-function UiSettings:show_gray_settings()
+function UiSettings:show_gray_settings(on_return)
     if type(self.ui.show_gray_settings) ~= "function" then
         self.ui:show_info("当前 KOReader 不支持漫画去灰增强设置。")
         return false
@@ -3419,6 +3516,7 @@ function UiSettings:show_gray_settings()
     local reader = self.settings:get_reader()
     local custom = reader.gray_enhance_custom_presets or {}
     self.ui:show_gray_settings{
+        on_return = self:_settings_return("gray", on_return),
         enabled = reader.gray_enhance_enabled == true,
         presets = self.settings:get_gray_presets(),
         selected_id = reader.gray_enhance_preset,
@@ -3435,7 +3533,7 @@ function UiSettings:show_gray_settings()
             local ok, err = self.settings:set_gray_preset(preset_id)
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info("去灰增强预设已保存，总开关保持不变。")
-            return true
+            return self:show_gray_settings()
         end, false),
         on_add = self:_callback("add gray enhancement preset", function()
             return self:_show_gray_editor(nil, true)
@@ -3466,7 +3564,8 @@ function UiSettings:show_gray_settings()
             return self:_show_gray_sample_path()
         end, false),
         on_preview = self:_callback("preview gray enhancement", function()
-            return self:_show_gray_preview()
+            if self:_show_gray_preview() then return true end
+            return self:show_gray_settings()
         end, false),
     }
     return true
@@ -3494,6 +3593,9 @@ function UiSettings:_show_tone_editor(preset_id, is_new)
         }
     end
     self.ui:show_tone_preset_editor{
+        on_return = self:_settings_callback("return to tone settings", function()
+            return self:show_tone_settings()
+        end),
         values = values,
         is_new = is_new == true,
         on_save = self:_callback("save tone adjustment preset", function(input)
@@ -3502,14 +3604,13 @@ function UiSettings:_show_tone_editor(preset_id, is_new)
             else ok, err = self.settings:update_tone_preset(preset_id, input) end
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info("亮度与对比度预设已保存。")
-            self:show_tone_settings()
             return true
         end, false),
     }
     return true
 end
 
-function UiSettings:show_tone_settings()
+function UiSettings:show_tone_settings(on_return)
     if type(self.ui.show_tone_settings) ~= "function" then
         self.ui:show_info("当前 KOReader 不支持亮度与对比度设置。")
         return false
@@ -3517,6 +3618,7 @@ function UiSettings:show_tone_settings()
     local reader = self.settings:get_reader()
     local custom = reader.tone_adjust_custom_presets or {}
     self.ui:show_tone_settings{
+        on_return = self:_settings_return("tone", on_return),
         enabled = reader.tone_adjust_enabled == true,
         presets = self.settings:get_tone_presets(),
         selected_id = reader.tone_adjust_preset,
@@ -3532,7 +3634,7 @@ function UiSettings:show_tone_settings()
             local ok, err = self.settings:set_tone_preset(preset_id)
             if not self:_preset_save_result(ok, err) then return false end
             self.ui:show_info("亮度与对比度预设已保存，总开关保持不变。")
-            return true
+            return self:show_tone_settings()
         end, false),
         on_add = self:_callback("add tone adjustment preset", function()
             return self:_show_tone_editor(nil, true)
@@ -3563,13 +3665,14 @@ function UiSettings:show_tone_settings()
             return self:_show_tone_sample_path()
         end, false),
         on_preview = self:_callback("preview tone adjustment", function()
-            return self:_show_tone_preview()
+            if self:_show_tone_preview() then return true end
+            return self:show_tone_settings()
         end, false),
     }
     return true
 end
 
-function UiSettings:show_light()
+function UiSettings:show_light(on_return)
     if not self.lighting or type(self.lighting.get) ~= "function"
         or type(self.ui.show_light) ~= "function" then
         self.ui:show_info(validation_message("frontlight_unavailable"))
@@ -3581,6 +3684,7 @@ function UiSettings:show_light()
         return false
     end
     self.ui:show_light{
+        on_return = type(on_return) == "function" and self:_settings_callback("return from light", on_return) or nil,
         values = state,
         on_save = self:_callback("save frontlight settings", function(values)
             local intensity = tonumber(values and values.intensity)
@@ -4146,9 +4250,10 @@ function UiSettings:show_cover_cache()
     return true
 end
 
-function UiSettings:show_reader_help()
+function UiSettings:show_reader_help(on_return)
     if type(self.ui.show_reader_help) ~= "function" then return false end
-    return self.ui:show_reader_help(ReaderHelp) ~= false
+    return self.ui:show_reader_help(ReaderHelp,
+        type(on_return) == "function" and self:_settings_callback("return from help", on_return) or nil) ~= false
 end
 
 function UiSettings:show_about(version, diagnostics)

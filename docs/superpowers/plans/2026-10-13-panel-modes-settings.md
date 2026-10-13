@@ -7,7 +7,7 @@
 **Tech Stack:** Lua 5.1/LuaJIT、KOReader BlitBuffer/Leptonica、现有 Python/Lupa/Pillow 和离线 ARM Docker 环境；无新增产品依赖。
 **Spec:** `docs/superpowers/specs/2026-10-13-panel-modes-settings-design.md`，用户已确认；本会话由主代理顺序实施，最后独立审查。
 
-状态：实施计划待审阅；尚未实施产品改动。预计发布 v0.4.31，发布日使用实际完成日期。
+状态：用户于 2026-10-13 回复“计划符合，开始实施”，按本会话顺序执行。预计发布 v0.4.31，发布日使用实际完成日期。
 
 ## Global Constraints
 
@@ -55,8 +55,8 @@ $taskArchive = 'downloads/webdavmanga.koplugin-v0.4.31-panel-modes-settings.zip'
 
 **Interfaces:** `ReaderShell:show_number_input(model)` 增加 `model.on_return()`，保存或返回时先关闭输入/键盘再调用；`ReaderShell:suspend_controls()` 返回恢复函数，使用不含父级按钮的漫画底图，恢复需检查 Shell 仍有效。全局编辑器使用同样的开始/结束边界，内部页面切换不得触发外层结束。继续使用 `dialog_epoch`、UiRegistry 和现有安全回调。
 
-- [ ] RED：`settings_hierarchy_spec` 通过真实 Shell 和默认 UiSettings 适配器验证数字框下无父按钮；选择页/灰度/对比度/样本路径/预览/前光/帮助逐层返回；保存与取消准确回到直接父页；退出与迟到回调不会重开页面；布局失败恢复旧页。
-- [ ] RED：将旧截图测试改为 `assert(reader.save_panel_screenshot == nil and shell.save_panel_screenshot == nil)`，实际菜单中无“当前视图截图”；保留独立设备旋转与手势断言。
+- [x] RED：`settings_hierarchy_spec` 通过真实 Shell 和默认 UiSettings 适配器验证数字框下无父按钮；选择页/灰度/对比度/样本路径/预览/前光/帮助逐层返回；保存与取消准确回到直接父页；退出与迟到回调不会重开页面；布局失败恢复旧页。
+- [x] RED：将旧截图测试改为 `assert(reader.save_panel_screenshot == nil and shell.save_panel_screenshot == nil)`，实际菜单中无“当前视图截图”；保留独立设备旋转与手势断言。
 
 新增窗口测试的关键断言如下，使用现有 `spec/helpers/reader_quadrant_host.lua` 创建 reader，并注入原生输入窗口边界：
 
@@ -66,10 +66,10 @@ assert(shell.current_model.kind ~= 'controls', '数值输入下方必须隐藏�
 assert(reader.save_panel_screenshot == nil and shell.save_panel_screenshot == nil)
 ```
 
-- [ ] 运行 `& $taskPy scripts/run_lua_specs.py spec/settings_hierarchy_spec.lua spec/rebuild_0422_panel_tools_spec.lua`，确认新需求失败原因匹配上述缺口。
-- [ ] GREEN：沿用同一 Shell 切换内层控制；打开外部编辑器时隐藏控制页、保持不透明底图。所有内层增加“返回上一级”；保存/取消/用户关闭统一走返回路径，退出令牌防止恢复已关闭阅读器。删除两层截图实现、菜单入口和对应帮助文案。
-- [ ] 验证新增规格，以及 `settings_transition_spec`、`settings_preview_widget_spec`、`settings_session_exit_spec`、`reader_exit_spec`、`rebuild_0423_plugin_exit_spec`、`plugin_background_spec`、`ui_background_spec`。
-- [ ] 提交：`fix: hide parent settings and remove panel screenshot`；任务交付物可独立验收。
+- [x] 运行 `& $taskPy scripts/run_lua_specs.py spec/settings_hierarchy_spec.lua spec/rebuild_0422_panel_tools_spec.lua`，确认新需求失败原因匹配上述缺口。
+- [x] GREEN：沿用同一 Shell 切换内层控制；打开外部编辑器时隐藏控制页、保持不透明底图。所有内层增加“返回上一级”；保存/取消/用户关闭统一走返回路径，退出令牌防止恢复已关闭阅读器。删除两层截图实现、菜单入口和对应帮助文案。
+- [x] 验证新增规格，以及 `settings_transition_spec`、`settings_preview_widget_spec`、`settings_session_exit_spec`、`reader_exit_spec`、`rebuild_0423_plugin_exit_spec`、`plugin_background_spec`、`ui_background_spec`。
+- [x] 提交：`fix: hide parent settings and remove panel screenshot`；任务交付物可独立验收。
 
 ## Task 2：菜单位置、指定设备旋转与动态状态
 

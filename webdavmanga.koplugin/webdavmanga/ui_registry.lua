@@ -23,10 +23,11 @@ end
 
 function UiRegistry:close(widget, ...)
     if widget then
-        self.widgets[widget] = nil
         DialogKeyboard.hide(widget)
     end
-    return self.ui_manager:close(widget, ...)
+    local result = self.ui_manager:close(widget, ...)
+    if widget and result ~= false then self.widgets[widget] = nil end
+    return result
 end
 
 function UiRegistry:close_all()

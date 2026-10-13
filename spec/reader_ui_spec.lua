@@ -307,7 +307,7 @@ for _, item in ipairs(ui.controls.actions) do
 end
 expect(panel_entry ~= nil, "reader root must retain the panel settings entry")
 panel_entry.callback()
-panel_action("← 返回设置").callback()
+panel_action("← 返回上一级").callback()
 expect(ui.controls.section == "root", "panel return must reopen reader settings")
 
 local outer_values, outer_flushes = {}, 0

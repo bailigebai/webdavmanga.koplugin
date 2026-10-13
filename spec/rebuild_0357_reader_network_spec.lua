@@ -58,6 +58,10 @@ local reader = Reader:new{
     show_network_settings = function() network_opens = network_opens + 1; return true end,
 }
 reader.reader_settings = settings:get_reader()
+reader.shell={suspend_controls=function()
+    controls=nil
+    return function()return reader:toggle_controls('root')end
+end}
 reader.context = { chapter_index = {
     count = function() return 1 end,
     get = function() return { path = "/page.jpg" } end,
@@ -72,5 +76,6 @@ expect(type(network_action) == "table" and type(network_action.callback) == "fun
     "reader settings root must expose network loading")
 expect(network_action.callback() == true and network_opens == 1,
     "network loading action must call the injected settings entry")
+expect(controls==nil,'network editor must hide underlying controls')
 
 print(("rebuild_0357_reader_network_spec: %d checks"):format(checks))

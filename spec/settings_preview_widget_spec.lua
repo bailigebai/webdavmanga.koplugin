@@ -75,6 +75,20 @@ for _, method in ipairs({"back", "handle", "native", "all"}) do
     handle.close()
     expect(widget.frees == 1 and before.frees == 1, "duplicate close is idempotent")
 end
+local returned=0
+local function open_with_parent()
+    expect(controller:_publish_filter_preview(controller.ui.show_tone_preview,
+        {before_buffer=buffer(),after_buffer=buffer(),on_return=function()
+            expect(#stack==0,'close preview before restoring its direct parent')
+            returned=returned+1
+        end},'preview return'),'open child preview')
+    return stack[#stack].widget,controller.filter_preview.handle
+end
+local child,handle=open_with_parent();child:onBack()
+expect(returned==1,'user Back restores direct parent')
+handle.close();expect(returned==1,'repeated close cannot reopen parent')
+child,handle=open_with_parent();controller:close_all()
+expect(returned==1,'plugin teardown must not restore settings')
 local before, after = buffer(), buffer()
 fail_dirty = true
 expect(controller:_publish_filter_preview(controller.ui.show_tone_preview,

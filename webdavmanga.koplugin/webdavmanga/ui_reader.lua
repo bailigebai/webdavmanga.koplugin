@@ -2322,13 +2322,6 @@ function Reader:set_grid_option(key, value, make_default)
     return true
 end
 
-function Reader:save_panel_screenshot()
-    if not self.shell or not self:close_controls() then return false end
-    local path=self.shell:save_panel_screenshot()
-    self.shell:show_status(path and "当前分格截图已保存到 KOReader 截图目录。" or "截图保存失败，请检查截图目录。",2)
-    return path~=false
-end
-
 function Reader:rotate_panel_device()
     if self.pending_request or not self.shell or self.closing then return false end
     local session=self.panel_session
@@ -2711,6 +2704,22 @@ function Reader:show_panel_threshold_input(make_default)
     return false
 end
 
+function Reader:_open_external_settings(open)
+    if self.closing or not self.shell or type(open) ~= "function" then return false end
+    local shell = self.shell
+    local restore = shell:suspend_controls()
+    if not restore then return false end
+    local done = false
+    local function return_to_parent()
+        if done or self.closing or self.shell ~= shell then return false end
+        done = true
+        return restore()
+    end
+    local ok, result = pcall(open, return_to_parent)
+    if not ok or result == false then return_to_parent(); return false end
+    return true
+end
+
 function Reader:show_crop_input(name)
     if name ~= "auto_crop_strength" and name ~= "auto_crop_max_percent" then return false end
     local is_strength = name == "auto_crop_strength"
@@ -2822,7 +2831,7 @@ function Reader:toggle_controls(section)
         end
         actions[#actions+1]=action('宽图拆分设置','grid split settings',function() return show_section('split') end)
         actions[#actions+1]=action('继续阅读','resume grid page',show_current_page)
-        actions[#actions+1]=action('← 返回设置','grid settings back',function() return show_section('root') end)
+        actions[#actions+1]=action('← 返回上一级','grid settings back',function() return show_section('root') end)
     elseif section=='dynamic' then
         title='动态面板变焦 · 本书 / 长按默认'
         actions={}
@@ -2845,7 +2854,7 @@ function Reader:toggle_controls(section)
         end
         actions[#actions+1]=action('退出动态面板 → 整页','exit dynamic panels',function() return self:exit_panel_mode() end)
         actions[#actions+1]=action('继续阅读','resume dynamic panels',show_current_page)
-        actions[#actions+1]=action('← 返回设置','dynamic settings back',function() return show_section('root') end)
+        actions[#actions+1]=action('← 返回上一级','dynamic settings back',function() return show_section('root') end)
     elseif section == "panel_view" then
         title="分格视图 · 点按本书 / 长按默认"
         local function choice(text,key,value)
@@ -2879,8 +2888,8 @@ function Reader:toggle_controls(section)
             action("退出分格 → 整页","exit panel view",function() return self:exit_panel_mode() end),
             action("继续看当前格","resume panel view",show_current_page),
             action("更多分格设置","open advanced panel settings",function() return show_section("panel_advanced") end),
-            action("当前视图截图","save panel screenshot",function() return self:save_panel_screenshot() end),
             action("旋转整个设备 ↻","rotate panel device",function() return self:rotate_panel_device() end),
+            action("← 返回上一级","return to panel settings",function() return show_section("panel") end),
         }
     elseif section=="panel_advanced" then
         title="更多分格设置 · 本书 / 长按默认"
@@ -2888,7 +2897,7 @@ function Reader:toggle_controls(section)
             action("分格翻页动画","panel motion settings",function() return show_section("panel_motion") end),
             action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
             action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
-            action("← 返回分格视图","return to panel view",function() return show_section("panel_view") end),
+            action("← 返回上一级","return to panel view",function() return show_section("panel_view") end),
         }
     elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
         local Options=require("webdavmanga.panel_options")
@@ -2936,7 +2945,7 @@ function Reader:toggle_controls(section)
                 callback=self:_callback("panel margin",function() return margin(false) end,false),
                 hold_callback=self:_callback("panel margin default",function() return margin(true) end,false)}
         end
-        actions[#actions+1]=action("← 更多分格设置","back to advanced panel",function() return show_section("panel_advanced") end)
+        actions[#actions+1]=action("← 返回上一级","back to advanced panel",function() return show_section("panel_advanced") end)
     elseif section == "reading" then
         title = "阅读翻页"
         actions = {
@@ -2965,7 +2974,7 @@ function Reader:toggle_controls(section)
                     end)
                 end),
             action("继续阅读", "return to manga page", show_current_page),
-            action("← 返回设置", "back to reader settings", function()
+            action("← 返回上一级", "back to reader settings", function()
                 return show_section("root")
             end),
         }
@@ -3032,12 +3041,12 @@ function Reader:toggle_controls(section)
                     end)
                 end),
             action("继续阅读", "return to manga page", show_current_page),
-            action("← 返回设置", "back to reader settings", function()
+            action("← 返回上一级", "back to reader settings", function()
                 return show_section("root")
             end),
             action("前光与色温", "open light settings", function()
                 if type(self.show_light_settings) ~= "function" then return false end
-                return self.show_light_settings()
+                return self:_open_external_settings(self.show_light_settings)
             end),
         }
     elseif section == "split" then
@@ -3070,7 +3079,7 @@ function Reader:toggle_controls(section)
                     return self:set_split_first_segment(next_segment)
                 end),
             action("继续阅读", "return to manga page", show_current_page),
-            action("← 返回设置", "back to reader settings", function()
+            action("← 返回上一级", "back to reader settings", function()
                 return show_section("root")
             end),
         }
@@ -3129,7 +3138,7 @@ function Reader:toggle_controls(section)
                     return next_panel_value("panel_initial_zoom", { 1.0, 1.2, 1.5, 2.0 }, 1.2,make_default)
                 end),
             action("继续阅读", "return to manga page", show_current_page),
-            action("← 返回设置", "back to reader settings", function()
+            action("← 返回上一级", "back to reader settings", function()
                 return show_section("root")
             end),
         }
@@ -3162,7 +3171,7 @@ function Reader:toggle_controls(section)
                     return self:show_crop_input("auto_crop_max_percent")
                 end),
             action("继续阅读", "return to manga page", show_current_page),
-            action("← 返回设置", "back to reader settings", function()
+            action("← 返回上一级", "back to reader settings", function()
                 return show_section("root")
             end),
         }
@@ -3192,11 +3201,11 @@ function Reader:toggle_controls(section)
         end
         if type(self.show_gray_settings) == "function" then
             actions[#actions + 1] = action("管理自定义预设", "manage gray enhancement presets", function()
-                return self.show_gray_settings()
+                return self:_open_external_settings(self.show_gray_settings)
             end)
         end
         actions[#actions + 1] = action("继续阅读", "return to manga page", show_current_page)
-        actions[#actions + 1] = action("← 返回设置", "back to reader settings", function()
+        actions[#actions + 1] = action("← 返回上一级", "back to reader settings", function()
             return show_section("root")
         end)
     elseif section == "tone" then
@@ -3226,11 +3235,11 @@ function Reader:toggle_controls(section)
         if type(self.show_tone_settings) == "function" then
             actions[#actions + 1] = action("管理自定义预设",
                 "manage tone adjustment presets", function()
-                    return self.show_tone_settings()
+                    return self:_open_external_settings(self.show_tone_settings)
                 end)
         end
         actions[#actions + 1] = action("继续阅读", "return to manga page", show_current_page)
-        actions[#actions + 1] = action("← 返回设置", "back to reader settings", function()
+        actions[#actions + 1] = action("← 返回上一级", "back to reader settings", function()
             return show_section("root")
         end)
     else
@@ -3278,7 +3287,9 @@ function Reader:toggle_controls(section)
             end)
         end
         if type(self.show_reader_help) == "function" then
-            actions[#actions + 1] = action("漫画阅读说明", "show manga instructions", self.show_reader_help)
+            actions[#actions + 1] = action("漫画阅读说明", "show manga instructions", function()
+                return self:_open_external_settings(self.show_reader_help)
+            end)
         end
         if type(self.open_category_shelf) == "function" then
             actions[#actions + 1] = action("漫画分类架", "open category shelf from reader", function()
@@ -3288,7 +3299,7 @@ function Reader:toggle_controls(section)
         end
         if type(self.show_network_settings) == "function" then
             actions[#actions + 1] = action("网络加载", "open network settings from reader", function()
-                return self.show_network_settings()
+                return self:_open_external_settings(self.show_network_settings)
             end)
         end
         local navigation = self.context.source_context and self.context.source_context.navigation

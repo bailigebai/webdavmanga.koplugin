@@ -777,11 +777,11 @@ function WebDavManga:init()
         cache = self.cache,
         ui = deps.reader_ui_adapter,
         error_reporter = self.error_reporter,
-        show_gray_settings = function()
-            return self.settings_ui:show_gray_settings()
+        show_gray_settings = function(on_return)
+            return self.settings_ui:show_gray_settings(on_return)
         end,
-        show_tone_settings = function()
-            return self.settings_ui:show_tone_settings()
+        show_tone_settings = function(on_return)
+            return self.settings_ui:show_tone_settings(on_return)
         end,
         show_kopt_sample_path = function(on_saved)
             return self.settings_ui:show_kopt_sample_path(on_saved)
@@ -794,14 +794,14 @@ function WebDavManga:init()
             if browser and browser.show_library then return browser:show_library() end
             return true
         end,
-        show_light_settings = function()
-            return self.settings_ui:show_light()
+        show_light_settings = function(on_return)
+            return self.settings_ui:show_light(on_return)
         end,
-        show_network_settings = function()
-            return self.settings_ui:show_reader("network")
+        show_network_settings = function(on_return)
+            return self.settings_ui:show_reader("network", on_return)
         end,
-        show_reader_help = function()
-            return self.settings_ui:show_reader_help()
+        show_reader_help = function(on_return)
+            return self.settings_ui:show_reader_help(on_return)
         end,
         show_koreader_menu = function()
             local host_menu = self.ui and self.ui.menu

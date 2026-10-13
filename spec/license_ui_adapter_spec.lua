@@ -33,9 +33,9 @@ package.preload["webdavmanga.dialog_keyboard"] = function()
 end
 package.preload["webdavmanga.ui_registry"] = function()
     local Registry = {}
-    function Registry:new() return setmetatable({}, { __index = self }) end
-    function Registry:show(widget) shown[#shown + 1] = widget; return widget end
-    function Registry:close() return true end
+    function Registry:new() return setmetatable({widgets={}}, { __index = self }) end
+    function Registry:show(widget) self.widgets[widget]=true;shown[#shown + 1] = widget; return widget end
+    function Registry:close(widget) self.widgets[widget]=nil;return true end
     return Registry
 end
 

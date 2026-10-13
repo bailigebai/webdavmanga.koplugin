@@ -744,27 +744,6 @@ function ReaderShell:get_content_size()
     return screen_dimensions(self.screen)
 end
 
-function ReaderShell:save_panel_screenshot()
-    if self.closed or not self.current_model or self.current_model.kind~="page" then return false end
-    local previous=self.current_model
-    local clean={}
-    for k,v in pairs(previous) do clean[k]=v end
-    clean.show_progress,clean.status_text=false,nil
-    local ok,path=pcall(function()
-        local Screenshoter=require("ui/widget/screenshoter")
-        local directory=Screenshoter:getScreenshotDir()
-        assert(type(directory)=="string" and directory~="","screenshot directory unavailable")
-        assert(self:_publish(clean)~=false)
-        assert(self.ui_manager and self.ui_manager.forceRePaint and self.screen and self.screen.shot)
-        self.ui_manager:forceRePaint()
-        local name=directory..os.date("/WebDAVManga_panel_%Y-%m-%d_%H%M%S.png")
-        assert(self.screen:shot(name)==true,"screenshot write failed")
-        return name
-    end)
-    if not self.closed then pcall(self._publish,self,previous) end
-    return ok and path or false
-end
-
 function ReaderShell:rotate_device()
     if self.closed or not self.screen or not self.screen.getRotationMode
         or not self.ui_manager or not self.ui_manager.broadcastEvent or not self.ui_manager.onRotation then return false end
@@ -1111,8 +1090,10 @@ end
 
 function ReaderShell:show_controls(model)
     model = model or {}
+    self.controls_suspension = nil
     return self:_publish{
         kind = "controls",
+        section = model.section,
         title = model.title or "阅读设置",
         message = model.message or "阅读设置",
         actions = model.actions or {},
@@ -1122,6 +1103,31 @@ function ReaderShell:show_controls(model)
         -- gesture reaching the shell when a child dialog owns focus.
         show_exit_button = true,
     }
+end
+
+-- Keep the opaque manga surface while an external editor owns focus. The
+-- return closure belongs to this suspension only, and rebuilds live settings.
+function ReaderShell:suspend_controls()
+    if self.closed then return nil end
+    if self.controls_suspension then return self.controls_suspension.restore end
+    local previous = self.current_model
+    if not previous or previous.kind ~= "controls" then return function() return true end end
+    local suspension = {}
+    suspension.restore = function()
+        if self.closed or self.controls_suspension ~= suspension
+            or self.owner and self.owner.closing then return false end
+        self.controls_suspension = nil
+        if previous.section and self.owner and type(self.owner.toggle_controls) == "function" then
+            return self.owner:toggle_controls(previous.section)
+        end
+        return self:_publish(previous)
+    end
+    local ok, result = pcall(self._publish, self, {
+        kind = "settings_backdrop", title = previous.title, message = "", actions = {},
+    })
+    if not ok or result == false then return nil end
+    self.controls_suspension = suspension
+    return suspension.restore
 end
 
 function ReaderShell:show_page_picker(model)
@@ -1156,31 +1162,33 @@ end
 
 function ReaderShell:show_number_input(model)
     model = model or {}
+    if self.closed then return false end
     local ok, MultiInputDialog = pcall(require, "ui/widget/multiinputdialog")
     if not ok then return false end
     local manager = self.ui_manager
     if not manager or type(manager.show) ~= "function" or type(manager.close) ~= "function" then
         return false
     end
-    if self.input_dialog then
-        DialogKeyboard.hide(self.input_dialog)
-        pcall(manager.close, manager, self.input_dialog)
-        self.input_dialog = nil
+    local dialog, restore
+    local function active()
+        return not self.closed and dialog and self.input_dialog == dialog
     end
-    local dialog
     local function close_dialog()
-        if not dialog then return true end
+        if not active() then return true end
         local current = dialog
-        dialog = nil
-        if self.input_dialog == current then self.input_dialog = nil end
         DialogKeyboard.hide(current)
-        pcall(manager.close, manager, current)
+        local called, result = pcall(manager.close, manager, current)
+        if not called or result == false then return true end
+        dialog, self.input_dialog = nil, nil
+        if type(model.on_return) == "function" then pcall(model.on_return) end
+        if restore then pcall(restore) end
         return true
     end
-    dialog = MultiInputDialog:new(DialogKeyboard.with_top_button({
+    local created, value = pcall(MultiInputDialog.new, MultiInputDialog, DialogKeyboard.with_top_button({
         title = model.title or "输入数值",
         fullscreen = true,
         condensed = true,
+        close_callback = close_dialog,
         enter_callback = function()
             DialogKeyboard.hide(dialog)
             return true
@@ -1192,15 +1200,17 @@ function ReaderShell:show_number_input(model)
         }},
         buttons = {{
             {
-                text = "取消",
+                text = "← 返回上一级",
                 id = "close",
                 callback = function()
+                    if not active() then return true end
                     return close_dialog()
                 end,
             },
             {
                 text = "保存",
                 callback = function()
+                    if not active() then return true end
                     local fields = dialog:getFields()
                     local called, result = pcall(model.on_save, fields and fields[1])
                     local saved = called and result == true
@@ -1210,9 +1220,29 @@ function ReaderShell:show_number_input(model)
             },
         }},
     }, function() return dialog end))
+    if not created or not value then return false end
+    dialog = value
+    if self.input_dialog then
+        local previous = self.input_dialog
+        DialogKeyboard.hide(previous)
+        local closed, result = pcall(manager.close, manager, previous)
+        if not closed or result == false then
+            if type(dialog.free) == "function" then pcall(dialog.free, dialog) end
+            return false
+        end
+        self.input_dialog = nil
+    end
+    restore = self:suspend_controls()
+    if not restore then return false end
     self.input_dialog = dialog
-    manager:show(dialog)
-    DialogKeyboard.show(dialog)
+    local shown, result = pcall(manager.show, manager, dialog)
+    if not shown or result == false then
+        pcall(manager.close, manager, dialog)
+        self.input_dialog, dialog = nil, nil
+        pcall(restore)
+        return false
+    end
+    pcall(DialogKeyboard.show, dialog)
     return true
 end
 
@@ -1311,6 +1341,7 @@ function ReaderShell:close_now()
     self:stop_quadrant_hold_watch()
     if self.closed then return true end
     self.closed = true
+    self.controls_suspension = nil
     local bubble = self.bubble_zoom
     self.bubble_zoom, self.page_image, self.bubble_hold_consumed = nil, nil, nil
     pcall(self.close_panel_zoom, self)
