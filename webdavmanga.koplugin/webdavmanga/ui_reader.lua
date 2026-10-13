@@ -1953,8 +1953,8 @@ function Reader:_show_panel(buffer, _panel, index, count, render_options)
     if shown == false then return false end
     if self.panel_entry then self.panel_entry.displayed = true end
     -- A failed status redraw must not reject an already displayed allocation.
-    pcall(self.shell.show_status,self.shell,(self.reader_settings.dynamic_panel_zoom_enabled
-        and '动态面板 %d / %d' or '分格 %d / %d'):format(index, count))
+    pcall(self.shell.show_status,self.shell,self.reader_settings.dynamic_panel_zoom_enabled
+        and '' or ('分格 %d / %d'):format(index, count))
     return true
 end
 
@@ -1987,7 +1987,7 @@ function Reader:enter_panel_mode(desired)
     self.panel_entry.mode=self.reader_settings.dynamic_panel_zoom_enabled and 'dynamic' or 'intelligent'
     self.panel_entry.whole_page = nil
     self.current_segments, self.pan_y = { "whole" }, 0
-    self.shell:show_status(self.reader_settings.dynamic_panel_zoom_enabled and '正在原生检测动态面板' or '正在识别分格')
+    self.shell:show_status(self.reader_settings.dynamic_panel_zoom_enabled and '正在识别' or '正在识别分格',2)
     local width, height = self.shell:get_content_size()
     local shell = self.shell
     local schedule
@@ -2322,13 +2322,16 @@ function Reader:set_grid_option(key, value, make_default)
     return true
 end
 
-function Reader:rotate_panel_device()
+function Reader:rotate_panel_device(degrees)
+    if degrees ~= 0 and degrees ~= 90 and degrees ~= 180 and degrees ~= 270 then return false end
     if self.pending_request or not self.shell or self.closing then return false end
+    if self.shell.screen and self.shell.screen.getRotationMode
+        and self.shell.screen:getRotationMode() == degrees / 90 then return true end
     local session=self.panel_session
     local desired=session and session.index or "first"
     if not self:_display_segment("whole",false) then return false end
     if session then self.panel_session=nil;session:close() end
-    local rotated=self.shell:rotate_device()
+    local rotated=self.shell:rotate_device(degrees)
     if not self:_display_segment("whole",false) then return false end
     if self.panel_entry then self:enter_panel_mode(desired) end
     if not rotated then self.shell:show_status("设备方向调整失败，已保留当前页。",2) end
@@ -2801,7 +2804,18 @@ function Reader:toggle_controls(section)
 
     local actions
     local title
-    if section=='grid' then
+    if section=='device_rotation' then
+        title='设备旋转'
+        actions={}
+        for _,degrees in ipairs({0,90,180,270}) do
+            local angle=degrees
+            actions[#actions+1]=action(tostring(angle)..'°','rotate device',function()
+                if not self:rotate_panel_device(angle) then return false end
+                return show_section('device_rotation')
+            end)
+        end
+        actions[#actions+1]=action('← 返回上一级','return from rotation',function()return show_section('root')end)
+    elseif section=='grid' then
         title='网格象限缩放 · 本书 / 长按默认'
         actions={}
         for _,field in ipairs(Quadrant.fields) do
@@ -2887,8 +2901,6 @@ function Reader:toggle_controls(section)
                 "panel_order",self:_panel_direction()=="manga" and "normal" or "manga"),
             action("退出分格 → 整页","exit panel view",function() return self:exit_panel_mode() end),
             action("继续看当前格","resume panel view",show_current_page),
-            action("更多分格设置","open advanced panel settings",function() return show_section("panel_advanced") end),
-            action("旋转整个设备 ↻","rotate panel device",function() return self:rotate_panel_device() end),
             action("← 返回上一级","return to panel settings",function() return show_section("panel") end),
         }
     elseif section=="panel_advanced" then
@@ -2897,7 +2909,7 @@ function Reader:toggle_controls(section)
             action("分格翻页动画","panel motion settings",function() return show_section("panel_motion") end),
             action("触发手势与导航","panel navigation settings",function() return show_section("panel_navigation") end),
             action("裁切、对白保护与识别","panel detection settings",function() return show_section("panel_detection") end),
-            action("← 返回上一级","return to panel view",function() return show_section("panel_view") end),
+            action("← 返回上一级","return to panel settings",function() return show_section("panel") end),
         }
     elseif section=="panel_motion" or section=="panel_navigation" or section=="panel_detection" then
         local Options=require("webdavmanga.panel_options")
@@ -3109,6 +3121,7 @@ function Reader:toggle_controls(section)
         local initial_zoom = self.reader_settings.panel_initial_zoom or 1.2
         actions = {
             action("分格视图、旋转与方向","open panel view controls",function() return show_section("panel_view") end),
+            action("更多分格设置","open advanced panel settings",function() return show_section("panel_advanced") end),
             panel_action(self.reader_settings.panel_zoom_enabled == true
                     and "智能分格：开启" or "智能分格：关闭",
                 "toggle panel zoom", function(make_default)
@@ -3261,6 +3274,7 @@ function Reader:toggle_controls(section)
             action("智能分格阅读", "open dynamic panel settings", function()
                 return show_section("panel")
             end),
+            action('设备旋转','open device rotation',function()return show_section('device_rotation')end),
             action('动态面板变焦','open native dynamic panels',function() return show_section('dynamic') end),
             action('网格象限缩放','open independent quadrant grid',function() return show_section('grid') end),
             action("漫画去灰增强", "open gray enhancement settings", function()

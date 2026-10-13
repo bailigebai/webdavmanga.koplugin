@@ -146,6 +146,23 @@ test('unavailable preview restores preset page',function()
     press(windows[1],'预览当前预设')
     expect(windows[#windows].title==title,'preview rejection restores direct parent')
 end)
+test('global device orientation returns directly to root and preserves image rotation',function()
+    local _,_,controller,windows=settings_setup();local angle
+    controller.rotate_device=function(value)angle=value;return true end
+    local image_rotation=controller.settings:get_reader().panel_rotation
+    controller:show_reader();local title=windows[1].title
+    local entry
+    for _,row in ipairs(windows[1].buttons) do for _,button in ipairs(row) do
+        if button.text:find('设备旋转',1,true)==1 then entry=button end
+    end end
+    expect(entry,'global reading root offers device rotation');entry.callback()
+    expect(#windows==1 and windows[1].title=='设备旋转','orientation replaces root')
+    press(windows[1],'270°')
+    expect(angle==270 and controller.settings:get_reader().panel_rotation==image_rotation,
+        'device orientation does not change panel image rotation')
+    press(windows[1],'← 返回上一级')
+    expect(#windows==1 and windows[1].title==title,'orientation returns directly to root')
+end)
 test('global choices return through every direct parent with only one settings window',function()
     local _,_,controller,windows=settings_setup()
     controller:show_reader();local root_title=windows[1].title

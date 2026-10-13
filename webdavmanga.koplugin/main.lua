@@ -653,6 +653,14 @@ function WebDavManga:init()
             return connection_identity(self.settings:get_connection())
         end,
         lighting = self.lighting,
+        rotate_device = function(degrees)
+            if self.reader and self.reader.shell and not self.reader.closing then
+                return self.reader:rotate_panel_device(degrees)
+            end
+            return require('webdavmanga.ui_reader_shell').rotate_device({
+                screen=require('device').screen,ui_manager=require('ui/uimanager'),
+            }, degrees)
+        end,
         nodeshare = self.nodeshare,
         scheduler = deps.scheduler,
         network_manager = deps.network_manager,

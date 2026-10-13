@@ -77,12 +77,12 @@ assert(reader.save_panel_screenshot == nil and shell.save_panel_screenshot == ni
 
 **Interfaces:** `ReaderShell:rotate_device(degrees)` 接收且仅接收 0/90/180/270，映射到 KOReader 0/1/2/3，成功返回 true；`Reader:rotate_panel_device(degrees)` 保持物理页、重新计算屏幕尺寸并按当前模式恢复。阅读首页设备旋转子页返回首页；`panel_view` 和 `panel_advanced` 都返回 `panel`。
 
-- [ ] RED：真实菜单模型检查“更多分格设置”属于 `panel`，不属于 `panel_view`；四角度发送对应 `SetRotationMode` 事件；选择已处于的角度不重复重建或下载；设备旋转与内容旋转独立。
-- [ ] RED：动态 `_show_panel` 成功后 `status_text` 无“动态面板”和原识别提示，错误仍可见；上一个模式的状态不会残留。旋转失败、退出中旋转和触摸区域重新计算有断言。
-- [ ] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_controls_layout_spec.lua`，记录 RED。
-- [ ] GREEN：将设备旋转放到阅读设置首页，明确四个角度；全局设置入口同样可调用宿主旋转，不写入分格内容旋转值。调整直接父路由；动态进入提示改为中性短暂识别文字，成功清理模式状态，使用现有局部刷新。
-- [ ] 验证新增菜单规格及 `rebuild_0422_panel_tools_spec`、`rebuild_0424_dynamic_reader_spec`、`rebuild_0426_grid_reader_spec`、`panel_native_animation_spec`、`rebuild_0425_menu_bands_spec`、`rebuild_0422_bubble_priority_spec`。
-- [ ] 提交：`feat: expose device orientation and simplify panel controls`。
+- [x] RED：真实菜单模型检查“更多分格设置”属于 `panel`，不属于 `panel_view`；四角度发送对应 `SetRotationMode` 事件；选择已处于的角度不重复重建或下载；设备旋转与内容旋转独立。
+- [x] RED：动态 `_show_panel` 成功后 `status_text` 无“动态面板”和原识别提示，错误仍可见；上一个模式的状态不会残留。旋转失败、退出中旋转和触摸区域重新计算有断言。
+- [x] 运行 `& $taskPy scripts/run_lua_specs.py spec/panel_controls_layout_spec.lua`，记录 RED。
+- [x] GREEN：将设备旋转放到阅读设置首页，明确四个角度；全局设置入口同样可调用宿主旋转，不写入分格内容旋转值。调整直接父路由；动态进入提示改为中性短暂识别文字，成功清理模式状态，使用现有局部刷新。
+- [x] 验证新增菜单规格及 `rebuild_0422_panel_tools_spec`、`rebuild_0424_dynamic_reader_spec`、`rebuild_0426_grid_reader_spec`、`panel_native_animation_spec`、`rebuild_0425_menu_bands_spec`、`rebuild_0422_bubble_priority_spec`。
+- [x] 提交：`feat: expose device orientation and simplify panel controls`。
 
 ## Task 3：三模式策略、Web 提取及动态数值 schema
 

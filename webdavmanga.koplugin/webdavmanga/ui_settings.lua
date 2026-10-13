@@ -1160,6 +1160,8 @@ local function default_ui()
             },
         }
 
+        sections[#sections+1]={key='device_rotation',title='设备旋转',summary='0° / 90° / 180° / 270°',
+            action=model.on_open_device_rotation}
         local function after_close(widget, callback)
             if not close(widget) then return false end
             return defer_current(dialog_epoch, "reader settings transition", callback)
@@ -1261,6 +1263,7 @@ local function default_ui()
         end
 
         show_section = function(section)
+            if section.action then return section.action() end
             local dialog
             local buttons, row = {}, {}
             for _, item in ipairs(section.items) do
@@ -1357,6 +1360,23 @@ local function default_ui()
             end
         end
         if initial_section then show_section(initial_section) else show_root() end
+    end
+    function adapter:show_device_rotation(model)
+        local dialog
+        local buttons={}
+        for _,degrees in ipairs({0,90,180,270}) do
+            local angle=degrees
+            buttons[#buttons+1]={{text=tostring(angle)..'°',callback=guarded('device rotation',function()
+                return model.on_rotate(angle)
+            end)}}
+        end
+        buttons[#buttons+1]={{text='← 返回上一级',callback=guarded('return from device rotation',function()
+            if registry:close(dialog)==false then return false end
+            return model.on_return()
+        end)}}
+        dialog=ButtonDialog:new{title='设备旋转',buttons=buttons,width_factor=.92}
+        registry:show(dialog)
+        return true
     end
     function adapter:show_gray_settings(model)
         self.dialog_epoch = self.dialog_epoch + 1
@@ -2303,6 +2323,7 @@ function UiSettings:new(deps)
     object.bookshelf_ui=deps.bookshelf_ui
     object.identity_provider = deps.identity_provider or function() return "" end
     object.lighting = deps.lighting
+    object.rotate_device = deps.rotate_device
     object.ui = deps.ui or default_ui()
     object.error_reporter = deps.error_reporter
     object.on_connection_saved = deps.on_connection_saved
@@ -3100,6 +3121,13 @@ function UiSettings:show_reader(initial_section, on_return)
     form_values.auto_crop_strength = AutoCrop.strength_from_threshold(
         current.auto_crop_threshold)
     self.ui:show_reader{
+        on_open_device_rotation = self:_settings_callback('open device rotation',function()
+            if not self.rotate_device or not self.ui.show_device_rotation then return self:show_reader() end
+            return self.ui:show_device_rotation{
+                on_rotate=self:_settings_callback('rotate device',self.rotate_device),
+                on_return=self:_settings_callback('return from device rotation',function()return self:show_reader()end),
+            }
+        end),
         on_return = self:_settings_return("reader", on_return),
         values = form_values,
         initial_section = initial_section,

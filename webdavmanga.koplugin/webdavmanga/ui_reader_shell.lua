@@ -744,18 +744,31 @@ function ReaderShell:get_content_size()
     return screen_dimensions(self.screen)
 end
 
-function ReaderShell:rotate_device()
+function ReaderShell:rotate_device(degrees)
+    if degrees ~= 0 and degrees ~= 90 and degrees ~= 180 and degrees ~= 270 then return false end
     if self.closed or not self.screen or not self.screen.getRotationMode
         or not self.ui_manager or not self.ui_manager.broadcastEvent or not self.ui_manager.onRotation then return false end
+    local previous = self.screen:getRotationMode()
+    local mode = degrees / 90
+    if previous == mode then return true end
     local ok=pcall(function()
         local Event=require("ui/event")
-        local mode=(self.screen:getRotationMode()+1)%4
         self.ui_manager:broadcastEvent(Event:new("SetRotationMode",mode))
         self.ui_manager:onRotation()
         self.screen_w,self.screen_h=screen_dimensions(self.screen)
         self.top_h=math.max(44,math.floor(self.screen_h*.08))
         if self.widget and self.widget.init then self.widget:init() end
     end)
+    if not ok then
+        pcall(function()
+            local Event=require("ui/event")
+            self.ui_manager:broadcastEvent(Event:new("SetRotationMode",previous))
+            self.ui_manager:onRotation()
+            self.screen_w,self.screen_h=screen_dimensions(self.screen)
+            self.top_h=math.max(44,math.floor(self.screen_h*.08))
+            if self.widget and self.widget.init then self.widget:init() end
+        end)
+    end
     return ok
 end
 

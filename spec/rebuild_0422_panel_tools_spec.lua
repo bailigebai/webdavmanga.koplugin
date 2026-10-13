@@ -12,7 +12,7 @@ r.shell.screen.getRotationMode=function() return mode end
 r.shell.ui_manager.broadcastEvent=function(_,event) mode=event.mode end
 r.shell.ui_manager.onRotation=function() end
 package.loaded["ui/event"]={new=function(_,name,value) assert(name=="SetRotationMode");return {mode=value} end}
-assert(r.shell:rotate_device() and mode==1,"device rotation must use KOReader's public rotation event")
+assert(r.shell:rotate_device(90) and mode==1,"device rotation must use KOReader's public rotation event")
 r.reader_settings.panel_entry_gesture="two_finger_tap"
 local entered=0;r.enter_panel_mode=function() entered=entered+1;return true end
 assert(r:onTwoFingerTap(r.shell,{pos={x=300,y=400}}) and entered==1 and not r.quadrant_zoom,
