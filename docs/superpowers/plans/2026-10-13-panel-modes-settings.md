@@ -153,18 +153,20 @@ assert(Profile.threshold({[180]=4000},180,50) == 50, '均匀页保留手动基�
 
 **Interfaces:** ARM 分格报告包含三种策略及使用的 options、合成样本预期、实际框、对白保护范围、有效阈值、耗时、缓冲/原生分配清理和模块散列。原文件报告继续使用 `stream_formats_contract.validate_report(report, plugin)`；新文件进入 package_contract.REQUIRED。
 
-- [ ] RED：打包契约拒绝漏掉新模块、过期版本/源哈希报告；Web 来源样本预期只在对应模式断言，不把智能格数硬套给另外两种。
-- [ ] GREEN：版本统一为 0.4.31，新增模块全部纳入严格文件清单；更新三模式帮助和截图移除说明。发布日和 ZIP 文件名用实际完成日期，历史报告保留。
-- [ ] 运行全量 Lua/语法与 6 项门禁命令；新增门禁测试如有则统计实际数量。所有失败须查明，不忽略产品测试。
-- [ ] 运行 ARM 分格：`& $taskPy scripts/run_panel_analysis.py --samples 'E:\测试' --runtime-root 'E:\jiankong\webdav-manga-handoff\upstream-inspection\bookshelf-native-runtime-20261011\koreader' --support-runtime 'E:\jiankong\webdav-manga-handoff\upstream-inspection\official-nightly-runtime' --output $taskPanelOutput --report $taskPanelReport`；同时运行扩展后的动态原生契约，证明真实 Leptonica 释放。
-- [ ] 运行七原文件：`& $taskPy scripts/run_stream_formats.py --samples 'E:\测试' --runtime-root 'E:\jiankong\webdav-manga-handoff\upstream-inspection\official-nightly-runtime' --device-libs 'E:\jiankong\webdav-manga-handoff\device-diagnostics\2026-10-01\connected-readback' --report $taskStreamReport`；七项 cold/warm 及 EPUB legacy 必须通过、全本请求为 0。
-- [ ] 整个功能分支进行一次新的独立审查；处理确认的问题后只重跑受影响检查，最后审核设计全部八条需求及交付门禁。不把合成检测结果称为真实 Kindle 精准度已验收。
-- [ ] 生成包：`& $taskPy scripts/package_plugin.py $taskArchive --stream-report $taskStreamReport`；逐字节校验、解包运行相关规格、生成 SHA256 和实际源码清单。
-- [ ] 提交：`release: ship panel modes and settings navigation v0.4.31`。发布前读取 GitHub 当前 main，只有可正常快进时整合；不覆盖未评审的外部提交。
-- [ ] 按既有授权更新公开仓库和 GitHub Release，上传同一 ZIP 与 SHA256；读取 Release 附件并下载校验。同步提供本地安装压缩包和当前代码绝对路径。仅设备当前确实可访问时才安装并逐文件读回核对。
+- [x] RED：打包契约拒绝漏掉新模块、过期版本/源哈希报告；Web 来源样本预期只在对应模式断言，不把智能格数硬套给另外两种。
+- [x] GREEN：版本统一为 0.4.31，新增模块全部纳入严格文件清单；更新三模式帮助和截图移除说明。发布日和 ZIP 文件名用实际完成日期，历史报告保留。
+- [x] 运行全量 Lua/语法与 6 项门禁命令；新增门禁测试如有则统计实际数量。所有失败须查明，不忽略产品测试。
+- [x] 运行 ARM 分格：`& $taskPy scripts/run_panel_analysis.py --samples 'E:\测试' --runtime-root 'E:\jiankong\webdav-manga-handoff\upstream-inspection\bookshelf-native-runtime-20261011\koreader' --support-runtime 'E:\jiankong\webdav-manga-handoff\upstream-inspection\official-nightly-runtime' --output $taskPanelOutput --report $taskPanelReport`；同时运行扩展后的动态原生契约，证明真实 Leptonica 释放。
+- [x] 运行七原文件：`& $taskPy scripts/run_stream_formats.py --samples 'E:\测试' --runtime-root 'E:\jiankong\webdav-manga-handoff\upstream-inspection\official-nightly-runtime' --device-libs 'E:\jiankong\webdav-manga-handoff\device-diagnostics\2026-10-01\connected-readback' --report $taskStreamReport`；七项 cold/warm 及 EPUB legacy 必须通过、全本请求为 0。
+- [x] 整个功能分支进行一次新的独立审查；处理确认的问题后只重跑受影响检查，最后审核设计全部八条需求及交付门禁。不把合成检测结果称为真实 Kindle 精准度已验收。
+- [x] 生成包：`& $taskPy scripts/package_plugin.py $taskArchive --stream-report $taskStreamReport`；逐字节校验、解包运行相关规格、生成 SHA256 和实际源码清单。
+- [x] 提交：`release: ship panel modes and settings navigation v0.4.31`。发布前读取 GitHub 当前 main，只有可正常快进时整合；不覆盖未评审的外部提交。
+- [x] 按既有授权更新公开仓库和 GitHub Release，上传同一 ZIP 与 SHA256；读取 Release 附件并下载校验。同步提供本地安装压缩包和当前代码绝对路径。仅设备当前确实可访问时才安装并逐文件读回核对。
+
+本版验证、发布和压缩包交付已完成。设备在安装备份前断开，尚未写入新版本；已请求重新连接，安装仍待设备恢复，文件安装不构成真机交互验收。
 
 ## 需求覆盖与完成判断
 
 设计需求 1/2 → Task 1；需求 3/5/6 → Task 2；需求 8 → Task 3/5；需求 4 → Task 3/4/5；需求 7 → Task 4/5。所有任务均受 Task 6 的实际打包和七文件门禁约束。
 
-当前仅设计和实施计划文档已整理。任何复选框必须有本轮代码、测试或外部状态证据才勾选；未实现功能、未通过门禁、安装包未交付均不得报告目标完成。
+本轮实现及离线/ARM验证、公开发布和ZIP交付均有证据，见docs/verification.md与docs/implementation-0431.md。Kindle安装待重新连接，实机交互验收待安装后进行。
